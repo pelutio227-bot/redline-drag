@@ -844,7 +844,7 @@ const UI = (() => {
         <p class="mut" style="font-size:12px;margin-bottom:10px">Für alle, die nicht warten wollen: Spielgeld für Upgrades und Autos. Kein Vorteil im Rennen — gleiche Physik für alle.</p>
         ${Object.entries(CASH).map(([id,amt])=>`<button class="buy can packbtn" data-id="${id}" style="width:100%;margin:6px 0;display:flex;justify-content:space-between;padding:14px 16px"><span>$${amt.toLocaleString("de-CH")}</span><b>${prices[id]||"…"}</b></button>`).join("")}
         <button class="buy" id="shopRestore" style="width:100%;margin-top:10px;font-size:12px;opacity:.8">Käufe wiederherstellen</button>
-        <p class="mut" style="font-size:10.5px;margin-top:10px">Abrechnung über den App Store. Autos sind dauerhafte Käufe (nach Neuinstallation wiederherstellbar), Cash-Pakete werden sofort gutgeschrieben.</p>`;
+        <p class="mut" style="font-size:11.5px;margin-top:10px">Abrechnung über den App Store. Autos sind dauerhafte Käufe (nach Neuinstallation wiederherstellbar), Cash-Pakete werden sofort gutgeschrieben.</p>`;
       box.querySelectorAll(".packbtn").forEach(b=> b.onclick = ()=> buy(b.dataset.id));
       box.querySelector("#shopRestore").onclick = restore;
     }
