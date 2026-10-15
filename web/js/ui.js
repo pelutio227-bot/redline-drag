@@ -760,8 +760,13 @@ const UI = (() => {
       b.textContent = "IN DEINER GARAGE ✓ — fahren";
       b.classList.add("owned");
       b.onclick = ()=>{ save.current = "kuro"; persist(); show("garage"); };
+    } else if (Shop.native && !Shop.price("redline_vault_kuro")){
+      // Store liefert (noch) kein Produkt: kein toter Kauf-Knopf
+      b.textContent = "Bald im Vault erhältlich";
+      b.classList.add("owned");
+      b.onclick = null;
     } else if (Shop.native){
-      b.textContent = "Kaufen — " + (Shop.price("redline_vault_kuro") || "…");
+      b.textContent = "Kaufen — " + Shop.price("redline_vault_kuro");
       b.classList.remove("owned");
       b.onclick = ()=> Shop.buy("redline_vault_kuro");
     } else {
@@ -787,6 +792,7 @@ const UI = (() => {
       try { for (const p of await NB.products()) prices[p.id] = p.price; } catch(e){ console.warn("shop products", e); }
       await syncOwned();
       renderShopBits();
+      if (document.getElementById("vault").classList.contains("on")) renderVault();
     }
     function price(id){ return prices[id] || ""; }
     function grantCar(k){
@@ -829,7 +835,10 @@ const UI = (() => {
     }
     function renderShopBits(){
       const box = document.getElementById("shopPacks"); if (!box) return;
-      if (!native){ box.style.display = "none"; return; }
+      const mb = document.querySelector('.mbtn.vault small');
+      const hasStore = native && Object.keys(prices).length > 0;
+      if (mb && native) mb.textContent = hasStore ? "Exklusive Legenden · Cash-Pakete · Autos sofort freischalten" : "Exklusive Legenden der Szene";
+      if (!hasStore){ box.style.display = "none"; return; }
       box.style.display = "";
       box.innerHTML = `<h3 style="margin:18px 0 8px">Cash-Pakete</h3>
         <p class="mut" style="font-size:12px;margin-bottom:10px">Für alle, die nicht warten wollen: Spielgeld für Upgrades und Autos. Kein Vorteil im Rennen — gleiche Physik für alle.</p>
