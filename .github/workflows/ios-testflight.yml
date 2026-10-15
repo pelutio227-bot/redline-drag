@@ -1,0 +1,119 @@
+name: iOS TestFlight
+
+# Baut die Redline-Tuner-iOS-App auf einem macOS-Runner (Xcode vorinstalliert) und
+# lädt sie signiert nach TestFlight. Ohne ASC-Secrets läuft nur ein Compile-Check.
+# Upload bei Push nur, wenn die Commit-Nachricht «[testflight]» enthält.
+# Secrets: ASC_ISSUER_ID, ASC_KEY_P8 (Inhalt der AuthKey_62KH7HW8ZA.p8), optional ASC_KEY_ID.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Nach TestFlight hochladen (braucht ASC-Secrets)"
+        type: boolean
+        default: true
+      build_number:
+        description: "Build-Nummer (leer = Zeitstempel JJJJMMTThhmm)"
+        type: string
+        default: ""
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID || '62KH7HW8ZA' }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+      IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+      IOS_APPSTORE_PROFILE: ${{ secrets.IOS_APPSTORE_PROFILE }}
+      WANT_UPLOAD: ${{ (inputs.upload || contains(github.event.head_commit.message, '[testflight]')) && 'yes' || 'no' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Xcode-Version (neuste Xcode 26 wählen)
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$X" ] && sudo xcode-select -s "$X" || true
+          xcodebuild -version && xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Checkout Web-Spiel (redline/public aus Repo-Ordner web/)
+        run: |
+          bun install
+          REDLINE_PUBLIC=web bun run build
+      - name: Capacitor sync
+        run: bunx cap sync ios
+
+      - name: Build-Nummer
+        id: nr
+        run: |
+          B="${{ inputs.build_number }}"
+          [ -n "$B" ] || B=$(date -u +%Y%m%d%H%M)
+          echo "build=$B" >> "$GITHUB_OUTPUT"
+          echo "Build-Nummer: $B"
+
+      - name: Signierung einrichten (Zertifikat + Profil)
+        if: ${{ env.WANT_UPLOAD == 'yes' && env.ASC_KEY_P8 != '' && env.ASC_ISSUER_ID != '' }}
+        run: |
+          set -euo pipefail
+          KC=$RUNNER_TEMP/build.keychain-db; KCPW=$(uuidgen)
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          echo "$IOS_DIST_P12" | base64 --decode > $RUNNER_TEMP/dist.p12
+          security import $RUNNER_TEMP/dist.p12 -P "$IOS_DIST_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KCPW" "$KC" >/dev/null
+          security list-keychain -d user -s "$KC" login.keychain-db
+          security find-identity -v -p codesigning "$KC"
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_APPSTORE_PROFILE" | base64 --decode > $RUNNER_TEMP/appstore.mobileprovision
+          UUID=$(security cms -D -i $RUNNER_TEMP/appstore.mobileprovision | plutil -extract UUID raw -)
+          cp $RUNNER_TEMP/appstore.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+          echo "Profil $UUID installiert"
+
+      - name: Signiertes Archiv + TestFlight-Upload
+        if: ${{ env.WANT_UPLOAD == 'yes' && env.ASC_KEY_P8 != '' && env.ASC_ISSUER_ID != '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/private_keys
+          printf '%s\n' "$ASC_KEY_P8" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          AUTH=(-allowProvisioningUpdates
+                -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+                -authenticationKeyID "$ASC_KEY_ID"
+                -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/ios/App.xcarchive \
+            MARKETING_VERSION=1.0 CURRENT_PROJECT_VERSION="${{ steps.nr.outputs.build }}" \
+            "${AUTH[@]}" archive | tail -80
+          xcodebuild -exportArchive -archivePath build/ios/App.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist -exportPath build/ios/export "${AUTH[@]}"
+          echo "Hochgeladen: 1.0 (${{ steps.nr.outputs.build }}) — erscheint nach 5–30 Min. in TestFlight"
+
+      - name: Compile-Check ohne Signierung
+        if: ${{ !(env.WANT_UPLOAD == 'yes' && env.ASC_KEY_P8 != '' && env.ASC_ISSUER_ID != '') }}
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath build/ios/dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -60
+          ls -la build/ios/dd/Build/Products/Release-iphoneos/
+
+      - name: Logs sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-${{ steps.nr.outputs.build }}
+          path: |
+            build/ios/export/*.plist
+            build/ios/export/*.ipa
+            build/ios/export/*.txt
+          if-no-files-found: ignore

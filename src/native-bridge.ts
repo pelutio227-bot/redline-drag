@@ -1,0 +1,99 @@
+// Native-Bridge für die Store-App (Capacitor). Wird als window.NativeBridge in index.html geladen.
+// Im Browser (l.abooz.ch) existiert window.Capacitor nicht → isNative=false, das Spiel bleibt wie bisher.
+import { Capacitor } from "@capacitor/core";
+import { Purchases, LOG_LEVEL, type PurchasesPackage } from "@revenuecat/purchases-capacitor";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { StatusBar, Style } from "@capacitor/status-bar";
+import { Browser } from "@capacitor/browser";
+import { App as CapApp } from "@capacitor/app";
+
+const RC_KEY = Capacitor.getPlatform() === "ios" ? "appl_ZvNXrhYqzwYdKiHPLWRprvusnCK" : "";
+const isNative = Capacitor.isNativePlatform();
+
+export interface ProductInfo { id: string; price: string; title: string }
+export interface PurchaseOutcome { ok: boolean; cancelled?: boolean; error?: string; owned: string[]; consumed?: string }
+
+let configured = false;
+async function ensure(): Promise<boolean> {
+  if (!isNative || !RC_KEY) return false;
+  if (!configured) {
+    try {
+      await Purchases.setLogLevel({ level: LOG_LEVEL.WARN });
+      await Purchases.configure({ apiKey: RC_KEY });
+      configured = true;
+    } catch (e) { console.warn("[bridge] configure", e); return false; }
+  }
+  return true;
+}
+
+async function packages(): Promise<PurchasesPackage[]> {
+  if (!(await ensure())) return [];
+  try {
+    const { current, all } = await Purchases.getOfferings();
+    const list = current?.availablePackages ?? Object.values(all).flatMap((o) => o.availablePackages);
+    return list;
+  } catch (e) { console.warn("[bridge] offerings", e); return []; }
+}
+
+/** Produkte mit lokalisiertem Preis (z. B. «CHF 4.90»). */
+async function products(): Promise<ProductInfo[]> {
+  const pk = await packages();
+  return pk.map((p) => ({ id: p.product.identifier, price: p.product.priceString, title: p.product.title }));
+}
+
+/** Aktive Entitlements + alle je gekauften Produkt-IDs (dauerhafte Käufe pro Auto, Abos). */
+function ownedFrom(info: { entitlements: { active: Record<string, unknown> }; allPurchasedProductIdentifiers?: string[] }): string[] {
+  return Array.from(new Set([...Object.keys(info.entitlements.active ?? {}), ...(info.allPurchasedProductIdentifiers ?? [])]));
+}
+
+/** Kauf eines Produkts (Produkt-ID wie im App Store). Verbrauchsgüter melden `consumed` = Produkt-ID. */
+async function purchase(productId: string): Promise<PurchaseOutcome> {
+  const pk = (await packages()).find((p) => p.product.identifier === productId);
+  if (!pk) return { ok: false, error: "Produkt im Store noch nicht verfügbar.", owned: [] };
+  try {
+    const { customerInfo, productIdentifier } = await Purchases.purchasePackage({ aPackage: pk });
+    return { ok: true, owned: ownedFrom(customerInfo), consumed: productIdentifier };
+  } catch (e) {
+    const err = e as { code?: string | number; message?: string; userCancelled?: boolean };
+    if (err?.userCancelled || String(err?.code) === "1" || /cancel/i.test(err?.message ?? "")) return { ok: false, cancelled: true, owned: [] };
+    return { ok: false, error: err?.message || "Kauf fehlgeschlagen", owned: [] };
+  }
+}
+
+/** Wiederherstellen (nur dauerhafte Käufe/Entitlements). */
+async function restore(): Promise<PurchaseOutcome> {
+  if (!(await ensure())) return { ok: false, error: "Nur in der App.", owned: [] };
+  try { const { customerInfo } = await Purchases.restorePurchases(); return { ok: true, owned: ownedFrom(customerInfo) }; }
+  catch (e) { return { ok: false, error: (e as Error)?.message || "Fehler", owned: [] }; }
+}
+
+async function owned(): Promise<string[]> {
+  if (!(await ensure())) return [];
+  try { const { customerInfo } = await Purchases.getCustomerInfo(); return ownedFrom(customerInfo); } catch { return []; }
+}
+
+/** Haptik: "light" | "medium" | "heavy" */
+async function haptic(kind: "light" | "medium" | "heavy" = "light"): Promise<void> {
+  if (!isNative) return;
+  const style = kind === "heavy" ? ImpactStyle.Heavy : kind === "medium" ? ImpactStyle.Medium : ImpactStyle.Light;
+  try { await Haptics.impact({ style }); } catch { /* egal */ }
+}
+
+async function openUrl(url: string): Promise<void> {
+  if (!isNative) { window.open(url, "_blank"); return; }
+  try { await Browser.open({ url }); } catch { window.open(url, "_blank"); }
+}
+
+const bridge = { isNative, platform: Capacitor.getPlatform(), products, purchase, restore, owned, haptic, openUrl };
+(window as unknown as { NativeBridge: typeof bridge }).NativeBridge = bridge;
+
+if (isNative) {
+  void StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
+  void StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
+  document.documentElement.classList.add("native-app", "native-" + Capacitor.getPlatform());
+  // Zurück-Geste/Taste (Android) → Spiel-eigene Navigation
+  void CapApp.addListener("backButton", () => {
+    const back = document.querySelector<HTMLButtonElement>(".screen.on .back");
+    if (back) back.click();
+  });
+}

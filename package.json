@@ -1,0 +1,25 @@
+{
+  "name": "redline-tuner-store",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-www.mjs",
+    "bridge": "bun build src/native-bridge.ts --outfile www/js/native-bridge.js --target browser --minify",
+    "sync": "cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/haptics": "^8.0.1",
+    "@capacitor/ios": "^8.5.0",
+    "@capacitor/status-bar": "^8.0.1",
+    "@revenuecat/purchases-capacitor": "^13.7.4"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.0",
+    "typescript": "5"
+  }
+}

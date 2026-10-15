@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="de-CH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0A0A0E">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<title>REDLINE — Quarter Mile Kings</title>
+<meta name="description" content="REDLINE — 2D-Drag-Racing im Browser. 37 Autos, Tuning, Live-Duelle gegen Freunde, endlose Karriere. Kostenlos, läuft auf jedem Gerät.">
+<meta property="og:title" content="REDLINE — Quarter Mile Kings">
+<meta property="og:description" content="Schalten. Tunen. Aufsteigen. 37 Autos, Live-Duelle, endlose Karriere — direkt im Browser.">
+<meta property="og:image" content="https://l.abooz.ch/assets/icon-512.png">
+<meta property="og:url" content="https://l.abooz.ch/">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#0A0A0E; --panel:#14141C; --panel2:#1C1C26; --line:rgba(255,255,255,.08);
+    --txt:#F2F3F7; --mut:#8E92A3; --red:#FF2D40; --red2:#FF5A68; --grn:#2BE05E; --amb:#FFB020;
+  }
+  html.native-app #cloudBtn, html.native-app #cloudMail, html.native-app #adminLink, html.native-app .vault-web-note{display:none !important}
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+  html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+  body{background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;touch-action:manipulation}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  .screen{position:fixed;inset:0;display:none;flex-direction:column;overflow:hidden}
+  .screen.on{display:flex}
+  .scroll{flex:1;overflow-y:auto;padding:0 18px calc(env(safe-area-inset-bottom,0px) + 90px)}
+  #cv{position:fixed;inset:0;width:100%;height:100%;display:block;background:#0A0A0E}
+
+  .display{font-weight:900;letter-spacing:-.03em;font-style:italic}
+  h1.display{font-size:clamp(42px,10.5vw,80px);line-height:.95}
+  h1 .rl{color:var(--red)}
+  .kick{font-size:10px;font-weight:800;letter-spacing:.3em;text-transform:uppercase;color:var(--red2)}
+  .mut{color:var(--mut)}
+
+  /* Menü — mit AI-Artwork-Hintergrund (Fallback: Gradient) */
+  /* Scrollbar statt overflow:hidden — auf kleinen Screens war der Login unter
+     dem VAULT-Knopf abgeschnitten und unerreichbar. Zentrierung über auto-
+     Margins (.kick oben / #cloudMail unten): zentriert wenn Platz, sonst scrollt es. */
+  #menu{align-items:center;justify-content:flex-start;overflow-y:auto;text-align:center;gap:6px;
+    padding:calc(env(safe-area-inset-top,0px) + 58px) 0 calc(env(safe-area-inset-bottom,0px) + 16px);
+    background:radial-gradient(60rem 40rem at 50% 120%,rgba(255,45,64,.14),transparent 60%),var(--bg)}
+  #menu .kick{margin-top:auto}
+  #menu::before{content:"";position:absolute;inset:0;background:url('assets/bg-menu.jpg') center/cover no-repeat;opacity:.5;z-index:-1}
+  #menu::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,10,14,.45),rgba(10,10,14,.2) 35%,rgba(10,10,14,.88) 78%);z-index:-1}
+  #menu .tag{font-size:11px;letter-spacing:.42em;font-weight:700;color:#c9ccd8;text-transform:uppercase}
+  .menu-btns{display:flex;flex-direction:column;gap:11px;width:min(330px,86vw);margin-top:22px}
+  .mbtn{position:relative;background:rgba(20,20,28,.82);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:16px;padding:15px;font-size:15.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;transition:transform .12s}
+  .mbtn:active{transform:scale(.97)}
+  .mbtn.primary{background:linear-gradient(135deg,var(--red),#B3121F);border:0;box-shadow:0 14px 40px -14px rgba(255,45,64,.75)}
+  .mbtn small{display:block;font-size:11px;font-weight:600;letter-spacing:.02em;text-transform:none;color:rgba(255,255,255,.62);margin-top:2px}
+  @keyframes carFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+  @keyframes rlGlow{0%,100%{text-shadow:0 0 16px rgba(255,45,64,.3)}50%{text-shadow:0 0 38px rgba(255,45,64,.75)}}
+  #menu h1{animation:rlGlow 3.2s ease-in-out infinite}
+  #menuCar{width:min(400px,84vw);margin:2px auto 0;filter:drop-shadow(0 24px 30px rgba(0,0,0,.6));animation:carFloat 4.4s ease-in-out infinite;
+    background:radial-gradient(52% 62% at 50% 66%,rgba(255,255,255,.08),transparent 72%)}
+  #menuCarName{font-size:12px;font-weight:800;font-style:italic;letter-spacing:.14em;color:var(--mut)}
+  .cash{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);right:16px;background:rgba(20,20,28,.85);border:1px solid var(--line);padding:8px 14px;border-radius:99px;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;z-index:5}
+  .cash::before{content:"$ ";color:var(--grn)}
+  #lvlPill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:16px;background:rgba(20,20,28,.85);border:1px solid var(--line);padding:8px 14px;border-radius:99px;font-weight:900;font-size:13px;z-index:5;display:flex;align-items:center;gap:8px;font-style:italic;white-space:nowrap}
+  #lvlPill i{display:block;width:0;height:5px;max-width:52px;min-width:0;background:#6EA8FF;border-radius:3px;transition:width .5s;flex:0 0 auto}
+
+  .hd{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top,0px) + 14px) 18px 12px}
+  .hd .back{width:42px;height:42px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:18px;flex-shrink:0}
+  .hd h2{font-size:22px;font-weight:900;font-style:italic;letter-spacing:-.02em;flex:1}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-top:12px}
+  .card h3{font-size:12px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--mut);margin-bottom:10px}
+  .row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .row .nm{flex:1;min-width:0}
+  .row .nm b{display:block;font-size:14.5px}
+  .row .nm span{display:block;font-size:12px;color:var(--mut)}
+  .buy{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px 16px;min-height:44px;font-weight:800;font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .buy.can{background:linear-gradient(135deg,var(--red),#B3121F);border:0}
+  .buy.owned{color:var(--grn);background:rgba(43,224,94,.1);border-color:rgba(43,224,94,.3)}
+  .lvl{display:flex;gap:4px}
+  .lvl i{width:14px;height:5px;border-radius:3px;background:var(--panel2)}
+  .lvl i.on{background:var(--red)}
+  .lock{opacity:.45}
+  .seg .lockopt{opacity:.5;font-size:11px}
+  .carthumb{width:92px;flex:0 0 92px;border-radius:8px}
+  .carthumb.dim{filter:grayscale(.85) brightness(.6)}
+  .xpbar{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:11px;font-weight:800;color:var(--mut)}
+  .xpbar i{flex:1;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;display:block}
+  .xpbar b{display:block;height:100%;background:linear-gradient(90deg,#3d7bff,#6EA8FF);border-radius:4px;transition:width .6s}
+
+  .sld{display:flex;align-items:center;gap:12px;padding:9px 0}
+  .sld label{width:96px;font-size:12.5px;font-weight:700;color:var(--mut);flex-shrink:0}
+  .sld input{flex:1;appearance:none;height:5px;border-radius:3px;background:var(--panel2);outline:none}
+  .sld input::-webkit-slider-thumb{appearance:none;width:24px;height:24px;border-radius:50%;background:var(--red);border:3px solid #fff2;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+  .sld output{width:52px;text-align:right;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+  .seg{display:flex;background:var(--panel2);border-radius:12px;padding:4px;gap:4px}
+  .seg button{flex:1;padding:10px 6px;border-radius:9px;font-size:12.5px;font-weight:700;color:var(--mut)}
+  .seg button.on{background:var(--red);color:#fff}
+  .seg button.prev{background:transparent;color:var(--txt);box-shadow:inset 0 0 0 2px var(--grn);border-radius:9px}
+  .buybar{display:flex;align-items:center;gap:10px;margin-top:10px;padding:9px 12px;background:var(--panel2);border-radius:10px;font-size:12.5px}
+  .buybar span{flex:1;color:var(--mut)}
+  .buybar .buy{padding:8px 14px}
+  .buybar .dismiss{padding:8px 11px;background:transparent;color:var(--mut);font-weight:800;border-radius:8px}
+
+  .preview{position:sticky;top:0;z-index:3;background:linear-gradient(var(--bg) 92%,transparent);padding:6px 0 14px;text-align:center}
+  .preview img{width:min(380px,80vw);filter:drop-shadow(0 18px 22px rgba(0,0,0,.55));animation:carFloat 4.8s ease-in-out infinite;
+    background:radial-gradient(52% 62% at 50% 66%,rgba(255,255,255,.07),transparent 72%)}
+  #gCarName{font-size:13px;font-weight:900;font-style:italic;letter-spacing:.1em;text-shadow:0 2px 8px var(--bg)}
+  .tabs{display:flex;gap:6px;margin-top:4px}
+  .tabs button{flex:1;padding:13px 4px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-weight:800;font-size:12px;color:var(--mut)}
+  .tabs button.on{color:#fff;border-color:var(--red);background:rgba(255,45,64,.1)}
+
+  /* HUD */
+  #hud{position:fixed;inset:0;pointer-events:none;display:none}
+  #hud.on{display:block}
+  #hudVs{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);left:0;right:0;text-align:center;font-size:13px;font-weight:900;font-style:italic;letter-spacing:.1em;color:var(--mut)}
+  .pedal{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);pointer-events:auto;font-weight:900;letter-spacing:.06em;text-transform:uppercase;display:grid;place-items:center}
+  /* GAS — schmales, hohes Pedal wie im Auto: Trittfläche mit Rippen, kippt beim Drücken */
+  #pGas{left:20px;width:22vw;max-width:112px;height:158px;border-radius:14px 14px 26px 26px;overflow:hidden;
+    background:linear-gradient(170deg,#2b303b,#14161c);border:1px solid var(--line);color:#9aa1b2;
+    transform:perspective(480px) rotateX(17deg);transform-origin:50% 100%;
+    transition:transform .1s ease-out,border-color .15s,box-shadow .15s,color .15s;
+    box-shadow:0 18px 28px -12px rgba(0,0,0,.78),inset 0 2px 0 rgba(255,255,255,.07)}
+  #pGas .tread{position:absolute;inset:9px 11px 34px;border-radius:8px;pointer-events:none;
+    background:repeating-linear-gradient(180deg,#3b4250 0 5px,#1c2029 5px 14px);
+    box-shadow:inset 0 2px 10px rgba(0,0,0,.65);transition:filter .1s}
+  #pGas::after{content:"";position:absolute;left:30%;right:30%;bottom:8px;height:7px;border-radius:4px;
+    background:#07090d;box-shadow:inset 0 2px 3px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.05)}
+  #pGas b{position:absolute;bottom:15px;left:0;right:0;z-index:1;font-size:12.5px;letter-spacing:.3em;text-align:center;text-shadow:0 2px 6px rgba(0,0,0,.8)}
+  #pGas.hot{transform:perspective(480px) rotateX(36deg) translateY(4px);border-color:var(--grn);color:var(--grn);
+    box-shadow:0 8px 16px -10px rgba(0,0,0,.8),0 0 40px -6px rgba(43,224,94,.55)}
+  #pGas.hot .tread{filter:brightness(1.4)}
+  /* SHIFT — KOMPAKTER JDM-Tuning-Knüppel (Oldschool-Civic-Style, ohne Logo):
+     Carbon-Platte mit Chrom-Schrauben, kurze H-Gasse, roter Kugel-Knauf mit
+     Chrom-Ring. Schmaler als vorher (max 96px) → Tacho hat unten Mitte Platz. */
+  #pShift{right:16px;width:26vw;max-width:96px;height:132px;border-radius:16px;
+    color:#c7ccd8;border:1px solid #3a3f4b;
+    background:
+      radial-gradient(circle 3.5px at 12px 12px,#cfd3da 40%,#5a5f6a 60%,transparent 65%),
+      radial-gradient(circle 3.5px at calc(100% - 12px) 12px,#cfd3da 40%,#5a5f6a 60%,transparent 65%),
+      radial-gradient(circle 3.5px at 12px calc(100% - 12px),#cfd3da 40%,#5a5f6a 60%,transparent 65%),
+      radial-gradient(circle 3.5px at calc(100% - 12px) calc(100% - 12px),#cfd3da 40%,#5a5f6a 60%,transparent 65%),
+      repeating-linear-gradient(45deg,#171a20 0 3px,#101318 3px 6px);
+    box-shadow:0 16px 30px -12px rgba(0,0,0,.75),inset 0 2px 0 rgba(255,255,255,.08);
+    transition:transform .08s,box-shadow .12s,border-color .12s}
+  #pShift:active{transform:scale(.95)}
+  /* Kurze H-Gasse, gefräst */
+  #pShift .gate{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:76px;height:56px;border-radius:8px;
+    background:linear-gradient(180deg,#1b1f27,#111419);pointer-events:none;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.09),inset 0 -6px 10px rgba(0,0,0,.55)}
+  #pShift .gate i{position:absolute;top:6px;bottom:6px;width:10px;border-radius:6px;background:#05070b;
+    box-shadow:inset 0 2px 5px rgba(0,0,0,.95)}
+  #pShift .gate i:nth-child(1){left:8px} #pShift .gate i:nth-child(2){left:33px} #pShift .gate i:nth-child(3){right:8px}
+  #pShift .gate::after{content:"";position:absolute;left:8px;right:8px;top:50%;height:10px;transform:translateY(-50%);
+    border-radius:5px;background:#05070b;box-shadow:inset 0 2px 5px rgba(0,0,0,.95)}
+  /* Gang-Ziffern an den Slot-Enden */
+  #pShift .gn{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:76px;height:56px;pointer-events:none;
+    font-size:7.5px;font-weight:800;color:rgba(255,255,255,.4);font-style:normal}
+  #pShift .gn s{position:absolute;text-decoration:none}
+  #pShift .gn s:nth-child(1){left:19px;top:5px} #pShift .gn s:nth-child(2){left:19px;bottom:5px}
+  #pShift .gn s:nth-child(3){left:44px;top:5px} #pShift .gn s:nth-child(4){left:44px;bottom:5px}
+  #pShift .gn s:nth-child(5){right:11px;top:5px} #pShift .gn s:nth-child(6){right:11px;bottom:5px}
+  /* Kugel-Knauf mit Chrom-Ring: wandert per data-gear in den Slot */
+  #pShift .knob{position:absolute;left:50%;top:29px;width:22px;height:22px;border-radius:50%;pointer-events:none;
+    margin-left:-49px;border:2px solid #b9bfc9;
+    background:radial-gradient(circle at 34% 28%,#ff97a0,var(--red) 46%,#7d0a14);
+    box-shadow:0 4px 9px rgba(0,0,0,.75),inset 0 -4px 6px rgba(0,0,0,.45),inset 0 2px 3px rgba(255,255,255,.4);
+    transition:transform .15s cubic-bezier(.3,1.5,.4,1)}
+  #pShift .knob::after{content:"";position:absolute;inset:6px;border-radius:50%;background:rgba(0,0,0,.28)}
+  /* Slot-X: 2/27/52 · Slot-Y: Mitte 0, oben -15, unten 15 */
+  #pShift[data-gear="0"] .knob,#pShift:not([data-gear]) .knob{transform:translate(27px,0)}
+  #pShift[data-gear="1"] .knob{transform:translate(2px,-15px)}
+  #pShift[data-gear="2"] .knob{transform:translate(2px,15px)}
+  #pShift[data-gear="3"] .knob{transform:translate(27px,-15px)}
+  #pShift[data-gear="4"] .knob{transform:translate(27px,15px)}
+  #pShift[data-gear="5"] .knob{transform:translate(52px,-15px)}
+  #pShift[data-gear="6"] .knob{transform:translate(52px,15px)}
+  #pShift b{position:absolute;bottom:8px;left:0;right:0;font-size:10px;letter-spacing:.24em;text-align:center}
+  #pShift.flash{border-color:var(--grn);box-shadow:0 0 36px -8px rgba(43,224,94,.6),0 16px 30px -12px rgba(0,0,0,.75)}
+  /* NOS — runder roter Druckknopf mit Metallring, wird sichtbar REINGEDRÜCKT */
+  #pNos{right:36px;bottom:calc(env(safe-area-inset-bottom,0px) + 164px);width:84px;height:84px;border-radius:50%;
+    color:#fff;font-size:15px;letter-spacing:.1em;padding:0;
+    background:radial-gradient(circle at 36% 30%,#ff7a63,#E5372B 46%,#8c0f16 88%);
+    border:0;transition:transform .07s,box-shadow .07s,background .07s;animation:nosGlow 2.2s ease-in-out infinite;
+    box-shadow:0 8px 0 #5c0910,                       /* Druck-Tiefe */
+      0 0 0 8px #171b21,0 8px 0 8px #0b0e13,          /* Metall-Fassung */
+      0 0 0 9.5px rgba(255,255,255,.10),
+      0 20px 30px -6px rgba(0,0,0,.65),
+      inset 0 3px 4px rgba(255,255,255,.4)}
+  @keyframes nosGlow{0%,100%{filter:drop-shadow(0 0 4px rgba(255,80,50,.35))}50%{filter:drop-shadow(0 0 18px rgba(255,110,60,.75))}}
+  #pNos.hot{transform:translateY(7px);animation:none;
+    background:radial-gradient(circle at 36% 30%,#ffb08a,#FF6A2D 46%,#b3121f 88%);
+    box-shadow:0 1px 0 #5c0910,
+      0 0 0 8px #171b21,0 1px 0 8px #0b0e13,
+      0 0 0 9.5px rgba(255,255,255,.10),
+      0 0 46px -2px rgba(255,140,40,.95),
+      inset 0 4px 10px rgba(0,0,0,.35)}
+  #leaveRace{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:14px;pointer-events:auto;width:40px;height:40px;border-radius:12px;background:rgba(20,20,28,.7);border:1px solid var(--line);color:var(--mut);font-size:16px;backdrop-filter:blur(6px)}
+  #restartRace{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);right:14px;pointer-events:auto;width:40px;height:40px;border-radius:12px;background:rgba(20,20,28,.7);border:1px solid var(--line);color:#fff;font-size:19px;font-weight:900;backdrop-filter:blur(6px)}
+  #restartRace:active{background:var(--red);border-color:var(--red)}
+
+  /* Starter-Wahl */
+  #starter{background:radial-gradient(50rem 34rem at 50% -10%,rgba(255,45,64,.14),transparent 60%),var(--bg)}
+  #starter .hdw{text-align:center;padding:calc(env(safe-area-inset-top,0px) + 26px) 18px 6px}
+  #starterCards{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:12px 18px calc(env(safe-area-inset-bottom,0px) + 24px)}
+  .startercard{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:16px;text-align:center;transition:transform .12s,border-color .2s}
+  .startercard:active{transform:scale(.98);border-color:var(--red)}
+  .startercard img{width:min(300px,66vw)}
+  .startercard b{display:block;font-size:19px;font-weight:900;font-style:italic;letter-spacing:.02em}
+  .startercard>span{display:block;font-size:12px;color:var(--mut);margin-top:2px}
+  .startercard .pc{display:flex;justify-content:center;gap:14px;font-size:11.5px;margin-top:8px}
+  .startercard .pc em{font-style:normal;font-weight:700;color:var(--grn)}
+  .startercard .pc em.con{color:var(--mut)}
+  .sbs{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:5px 14px;text-align:left}
+  .sb{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+  .sb span{width:58px;flex-shrink:0}
+  .sb i{flex:1;height:5px;background:var(--panel2);border-radius:3px;overflow:hidden;display:block}
+  .sb b{display:block;height:100%;background:linear-gradient(90deg,var(--red),var(--red2));border-radius:3px}
+
+  /* Karriere VS-Zeilen */
+  .vsrow{display:flex;align-items:center;gap:14px}
+  .vsrow.cur{border-color:rgba(255,45,64,.5);box-shadow:0 0 30px -14px rgba(255,45,64,.5)}
+  .vsava{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;font-size:24px;flex-shrink:0;background:var(--panel2)}
+  .vsl{font-size:10px;font-weight:800;letter-spacing:.2em;color:var(--mut)}
+  .vsn{display:block;font-size:18px;font-weight:900;font-style:italic;letter-spacing:-.01em}
+  .vsrow .nm span{display:block;font-size:11.5px;color:var(--mut)}
+
+  /* Results */
+  #results{align-items:center;justify-content:center;text-align:center;background:rgba(8,8,12,.6);backdrop-filter:blur(14px)}
+  .rescard{background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:28px 24px;width:min(380px,92vw)}
+  .rescard .big{font-size:46px;font-weight:900;font-style:italic;letter-spacing:-.03em}
+  .rescard .big.win{color:var(--grn);text-shadow:0 0 40px rgba(43,224,94,.4)}
+  .rescard .big.lose{color:var(--red)}
+  .resgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px;text-align:left}
+  .resgrid div{background:var(--panel2);border-radius:12px;padding:10px 12px}
+  .resgrid b{display:block;font-size:16.5px;font-variant-numeric:tabular-nums}
+  .resgrid span{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);font-weight:700}
+  #resXp{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:11px;font-weight:800;color:var(--mut)}
+  #resXp i{flex:1;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;display:block}
+  #resXp b{display:block;height:100%;width:0;background:linear-gradient(90deg,#3d7bff,#6EA8FF);border-radius:4px;transition:width 1s cubic-bezier(.2,.7,.2,1)}
+  .resbtns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+  .resbtns .mbtn{padding:14px 8px;font-size:13.5px;white-space:nowrap}
+
+  /* Level-Up Overlay */
+  #lvlup{position:fixed;inset:0;z-index:80;display:grid;place-items:center;background:rgba(6,6,10,.72);backdrop-filter:blur(10px);opacity:0;pointer-events:none;transition:opacity .3s}
+  #lvlup.on{opacity:1}
+  #lvlup .inner{text-align:center;animation:pop .5s cubic-bezier(.2,1.4,.3,1)}
+  #lvlup .lu{font-size:15px;font-weight:800;letter-spacing:.4em;color:#6EA8FF;text-transform:uppercase}
+  #lvlup .num{font-size:110px;font-weight:900;font-style:italic;line-height:1;background:linear-gradient(180deg,#fff,#6EA8FF);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:0 0 60px rgba(110,168,255,.4)}
+  #lvlup .un{font-size:13px;color:var(--mut);margin-top:10px}
+  #lvlup .un b{color:var(--txt)}
+  @keyframes pop{0%{transform:scale(.5);opacity:0}100%{transform:scale(1);opacity:1}}
+
+  /* VS-Challenge */
+  #vschall{align-items:center;justify-content:center;text-align:center;background:radial-gradient(50rem 34rem at 50% 0%,rgba(255,45,64,.16),transparent 60%),var(--bg)}
+  #vsInfo{display:flex;flex-direction:column;align-items:center;gap:6px}
+  #vschall .menu-btns{margin-top:26px}
+
+  #toast{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);left:50%;transform:translate(-50%,20px);background:var(--panel);border:1px solid var(--line);padding:12px 20px;border-radius:14px;font-size:13.5px;font-weight:700;opacity:0;transition:all .3s;z-index:90;pointer-events:none;white-space:nowrap}
+  #toast.on{opacity:1;transform:translate(-50%,0)}
+
+  /* Cloud-Login (Menü) */
+  #cloudBtn{margin-top:14px;background:rgba(20,20,28,.82);border:1px solid var(--line);border-radius:99px;
+    padding:9px 18px;font-size:12.5px;font-weight:800;color:var(--txt);backdrop-filter:blur(8px)}
+  #cloudBtn em{display:block;font-style:normal;font-weight:600;font-size:10.5px;color:var(--mut)}
+  #cloudBtn.in{border-color:rgba(43,224,94,.4)}
+  #cloudBtn.in em{color:var(--grn)}
+  #cloudMail{margin-top:8px;margin-bottom:auto;font-size:11.5px;font-weight:700;color:var(--mut);text-decoration:underline;padding:6px 10px;flex:0 0 auto}
+  #adminLink{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);right:14px;font-size:11px;font-weight:800;
+    color:var(--mut);background:rgba(20,20,28,.8);border:1px solid var(--line);border-radius:99px;padding:7px 12px;z-index:6}
+  /* VAULT: goldener Menüknopf + Screen */
+  .mbtn.vault{border-color:rgba(255,176,32,.35);background:linear-gradient(135deg,rgba(52,40,10,.92),rgba(20,20,28,.85))}
+  .mbtn.vault small{color:#e8c377}
+  #vault{align-items:center;justify-content:flex-start;text-align:center;overflow-y:auto;
+    background:radial-gradient(52rem 36rem at 50% -10%,rgba(255,176,32,.12),transparent 60%),var(--bg)}
+  .vaultcard{background:var(--panel);border:1px solid rgba(255,176,32,.28);border-radius:24px;padding:24px 20px;
+    width:min(420px,92vw);margin:8px auto 24px;box-shadow:0 30px 70px -30px rgba(255,176,32,.25)}
+  .vaultcard img{width:min(360px,80vw);filter:drop-shadow(0 20px 26px rgba(0,0,0,.6)) drop-shadow(0 4px 34px rgba(168,85,247,.35))}
+  .vaultcard h3{font-size:24px;font-weight:900;font-style:italic;letter-spacing:-.01em;margin-top:4px}
+  .vaultcard .vp{color:#e8c377;font-weight:800;font-size:13px;letter-spacing:.18em;text-transform:uppercase}
+  .vaultcard p{color:var(--mut);font-size:12.5px;margin:8px 0 14px}
+  .vaultbuy{width:100%;padding:16px;border-radius:16px;font-size:16px;font-weight:900;letter-spacing:.04em;border:0;
+    background:linear-gradient(135deg,#FFB020,#c77e00);color:#1a1206;box-shadow:0 14px 40px -12px rgba(255,176,32,.6)}
+  .vaultbuy.owned{background:rgba(43,224,94,.15);color:var(--grn);border:1px solid rgba(43,224,94,.4);box-shadow:none}
+
+  /* LIVE-Duell-Lobby */
+  .roomcode{font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--mut);background:var(--panel);border:1px solid var(--line);padding:8px 12px;border-radius:10px}
+  .roomcode b{color:var(--amb);letter-spacing:.2em}
+  .duelgrid{display:flex;align-items:center;gap:10px}
+  .duelcard{flex:1;min-width:0;text-align:center;background:var(--panel2);border-radius:14px;padding:12px 8px;min-height:118px}
+  .duelcard b{display:block;font-size:14px;font-weight:900;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .duelcard span{display:block;font-size:10.5px;color:var(--mut);margin-top:1px}
+  .duelcard span i{font-style:normal;font-weight:800}
+  .duelcard img{width:100%;max-width:150px;margin-top:6px}
+  .duelvs{font-size:19px;font-weight:900;font-style:italic;color:var(--red);flex-shrink:0}
+  .spin{width:26px;height:26px;margin:18px auto 0;border-radius:50%;border:3px solid var(--panel);border-top-color:var(--red);animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .readybtn{width:100%;margin-top:12px;padding:17px;font-size:17px}
+  .readybtn.armed{animation:nitroPulse 2s ease-in-out infinite}
+  .duelshare{display:flex;margin-top:10px}
+  #duelCars{display:none;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  #duelCars.open{display:grid}
+  .duelcar{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:8px;text-align:center}
+  .duelcar.on{border-color:var(--red)}
+  .duelcar img{width:100%;max-width:130px}
+  .duelcar span{display:block;font-size:11px;font-weight:800;font-style:italic}
+
+  @media (min-width:760px){ .scroll,#starterCards{max-width:640px;margin:0 auto;width:100%} }
+</style>
+</head>
+<body>
+
+<canvas id="cv"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <button id="leaveRace">✕</button>
+  <button id="restartRace" title="Neustart">↺</button>
+  <div id="hudVs"></div>
+  <button class="pedal" id="pGas"><i class="tread"></i><b>GAS</b></button>
+  <button class="pedal" id="pNos">NOS</button>
+  <button class="pedal" id="pShift" data-gear="0"><i class="gate"><i></i><i></i><i></i></i><i class="gn"><s>1</s><s>2</s><s>3</s><s>4</s><s>5</s><s>6</s></i><i class="knob"></i><b>SHIFT</b></button>
+</div>
+
+<!-- Starter-Wahl -->
+<div class="screen" id="starter">
+  <div class="hdw">
+    <span class="kick">Willkommen bei Redline</span>
+    <h2 class="display" style="font-size:30px">Wähle dein erstes Auto</h2>
+    <p class="mut" style="font-size:13px;margin-top:4px">Jedes hat Stärken &amp; Schwächen — alle sind ausbaubar.</p>
+  </div>
+  <div id="starterCards"></div>
+</div>
+
+<!-- Hauptmenü -->
+<div class="screen" id="menu">
+  <div id="lvlPill">LV 1 <i></i></div>
+  <div class="cash" id="cash1">0</div>
+  <span class="kick">Quarter Mile Kings</span>
+  <h1 class="display">RED<span class="rl">LINE</span></h1>
+  <div class="tag">Schalten · Tunen · Aufsteigen</div>
+  <img id="menuCar" alt="">
+  <div id="menuCarName"></div>
+  <div class="menu-btns">
+    <button class="mbtn primary" data-go="career">Karriere<small>Endlose VS-Leiter — schlag sie alle</small></button>
+    <button class="mbtn" data-go="quick">Schnelles Rennen<small>Sofort Vollgas — $ fürs Gewinnen</small></button>
+    <button class="mbtn" data-go="bet">Bet &amp; Race<small>Einsatz setzen — Sieg verdoppelt ihn</small></button>
+    <button class="mbtn" data-go="garage">Garage<small>37 Autos · Upgrades · Tuning · Style</small></button>
+    <button class="mbtn" data-go="vs">⚡ VS Freund — LIVE<small>Echtzeit-Duell — Raum erstellen, Link schicken, fahren</small></button>
+    <button class="mbtn vault" data-go="vault">🔑 VAULT &amp; SHOP<small>Exklusive Legenden · Cash-Pakete · Autos sofort freischalten</small></button>
+  </div>
+  <button id="cloudBtn"></button>
+  <button id="cloudMail">oder per E-Mail-Code anmelden</button>
+  <button id="adminLink" style="display:none" onclick="location.href='admin.html'">🛠 Team-Admin</button>
+</div>
+
+<!-- Karriere -->
+<div class="screen" id="career">
+  <div class="hd"><button class="back" data-go="menu">‹</button><h2>Karriere</h2><div class="cash" style="position:static" id="cash2">0</div></div>
+  <div class="scroll" id="careerList"></div>
+</div>
+
+<!-- Garage -->
+<div class="screen" id="garage">
+  <div class="hd"><button class="back" data-go="menu">‹</button><h2>Garage</h2><div class="cash" style="position:static" id="cash3">0</div></div>
+  <div class="scroll">
+    <div class="preview"><img id="gCar" alt=""><div id="gCarName"></div></div>
+    <div class="tabs" id="gTabs">
+      <button data-t="cars" class="on">Autos</button>
+      <button data-t="up">Upgrades</button>
+      <button data-t="tune">Tuning</button>
+      <button data-t="style">Style</button>
+    </div>
+    <div id="gBody"></div>
+  </div>
+</div>
+
+<!-- LIVE-Duell-Lobby -->
+<div class="screen" id="duel">
+  <div class="hd">
+    <button class="back" id="duelLeave">‹</button>
+    <h2>Live-Duell</h2>
+    <div class="roomcode">RAUM <b id="duelCode">——————</b></div>
+  </div>
+  <div class="scroll">
+    <div class="card duelgrid">
+      <div class="duelcard" id="duelMe"></div>
+      <div class="duelvs">VS</div>
+      <div class="duelcard" id="duelRival"></div>
+    </div>
+    <div class="card">
+      <h3>Einsatz — vor dem Rennen festgelegt</h3>
+      <div class="seg" id="duelBets"></div>
+      <p class="mut" id="duelBetInfo" style="font-size:12px;padding-top:8px"></p>
+    </div>
+    <div class="card">
+      <button class="mbtn" id="duelCarBtn" style="width:100%">🚗 Auto wechseln</button>
+      <div id="duelCars"></div>
+    </div>
+    <button class="mbtn primary readybtn" id="duelReady">BEREIT!</button>
+    <div class="duelshare">
+      <button class="mbtn" id="duelShare" style="flex:1">🔗 Link an Freund schicken</button>
+    </div>
+    <p class="mut" style="font-size:11.5px;text-align:center;padding:12px">Neulinge wählen zuerst ihr Starter-Auto und sind sofort dabei.<br>Sobald beide BEREIT sind, startet das Rennen automatisch.</p>
+  </div>
+</div>
+
+<!-- VS-Challenge (Link empfangen) -->
+<div class="screen" id="vschall">
+  <span class="kick">Challenge angenommen?</span>
+  <h2 class="display" style="font-size:34px;margin:4px 0 10px">VS<span style="color:var(--red)">.</span></h2>
+  <div id="vsInfo"></div>
+  <div class="menu-btns">
+    <button class="mbtn primary" id="vsAccept">Rennen starten</button>
+    <button class="mbtn" data-go="menu">Später</button>
+  </div>
+</div>
+
+<!-- Results -->
+<div class="screen" id="results">
+  <div class="rescard">
+    <div class="big" id="resTitle">SIEG</div>
+    <div class="mut" id="resSub" style="font-size:13px;margin-top:2px"></div>
+    <div class="resgrid" id="resGrid"></div>
+    <div id="resXp"></div>
+    <div class="resbtns">
+      <button class="mbtn" data-go="menu">Menü</button>
+      <button class="mbtn" data-go="garage">Garage</button>
+      <button class="mbtn" id="btnAgain">↺ Nochmal</button>
+      <button class="mbtn primary" id="btnNext" style="display:none">Nächster ▶</button>
+      <button class="mbtn primary" id="btnLobby" style="display:none;grid-column:1/-1">Zur Lobby ▶</button>
+    </div>
+  </div>
+</div>
+
+<!-- VAULT -->
+<div class="screen" id="vault">
+  <div class="hd" style="width:100%"><button class="back" data-go="menu">‹</button><h2>Vault</h2><div class="cash" style="position:static" id="cash4">0</div></div>
+  <div class="scroll" style="width:100%">
+    <p class="kick" style="text-align:center;padding:4px 0 10px">Drop #001 · Limitierte Legende</p>
+    <div class="vaultcard">
+      <img id="vaultCar" alt="">
+      <div class="vp">Vault-exklusiv</div>
+      <h3>KURO ØNI</h3>
+      <p>Schwarzer Widebody-Dämon mit violettem Feuer. Engste Schaltzone des Spiels (220 rpm),
+      eigener Sound, exklusiv im Vault — kein Grind, kein Zufall, für immer deins.</p>
+      <div class="resgrid" id="vaultStats" style="text-align:left"></div>
+      <button class="vaultbuy" id="vaultBuy" style="margin-top:14px">Kaufen — CHF 4.90</button>
+      <p class="mut vault-web-note" style="font-size:10.5px;margin-top:10px">Kauf über Stripe · dauerhaft mit deinem Konto verknüpft (Login nötig) ·
+      kein Pay-to-Win: gleiche Liga wie Top-Level-Autos, aber einmaliger Look &amp; Sound.</p>
+    </div>
+    <div id="shopPacks" style="display:none;width:100%;max-width:420px;text-align:left"></div>
+  </div>
+</div>
+
+<!-- Level-Up -->
+<div id="lvlup"><div class="inner">
+  <div class="lu">Level Up</div>
+  <div class="num" id="lvlupNum">2</div>
+  <div class="un" id="lvlupUnlocks"></div>
+</div></div>
+
+<div id="toast"></div>
+
+<script>window.VAULT_LINK = "https://buy.stripe.com/5kQfZidi1fNdefBeus1kA02";</script>
+<script src="js/vendor/supabase.js?v=15"></script>
+<script src="js/vendor/qrcode.js?v=17"></script>
+<script src="assets/cars/meta.js?v=24"></script>
+<script src="assets/cars/kitmeta.js?v=24"></script>
+<script src="js/cars.js?v=24"></script>
+<script src="js/audio.js?v=24"></script>
+<script src="js/game.js?v=24"></script>
+<script src="js/cloud.js?v=20"></script>
+<script src="js/live.js?v=15"></script>
+<script src="js/ui.js?v=24"></script>
+<script>
+  // Lobby-Buttons (live.js)
+  document.getElementById("duelLeave").addEventListener("click", ()=>Live.leave());
+  document.getElementById("duelReady").addEventListener("click", ()=>Live.toggleReady());
+  document.getElementById("duelShare").addEventListener("click", ()=>Live.shareLink());
+  document.getElementById("duelCarBtn").addEventListener("click", ()=>Live.renderCarPick());
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
