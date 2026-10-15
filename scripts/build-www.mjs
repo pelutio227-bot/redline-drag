@@ -12,6 +12,8 @@ for (const f of readdirSync(SRC)) {
 execSync("bun build src/native-bridge.ts --outfile www/js/native-bridge.js --target browser --minify", { stdio: "inherit" });
 let html = readFileSync("www/index.html", "utf8");
 html = html.replace(/<link rel="manifest"[^>]*>\s*/g, "");
+// Service Worker gibt es in der App nicht (Assets sind gebündelt)
+html = html.replace(/navigator\.serviceWorker\.register\([^)]*\)[^;]*;?/g, "void 0;");
 html = html.replace("</head>", '<script src="js/native-bridge.js"></script>\n</head>');
 writeFileSync("www/index.html", html);
 console.log("www/ gebaut aus", SRC);

@@ -90,7 +90,8 @@ const bridge = { isNative, platform: Capacitor.getPlatform(), products, purchase
 if (isNative) {
   void StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
   void StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
-  document.documentElement.classList.add("native-app", "native-" + Capacitor.getPlatform());
+  const mark = () => document.documentElement?.classList.add("native-app", "native-" + Capacitor.getPlatform());
+  mark(); document.addEventListener("DOMContentLoaded", mark);
   // Zurück-Geste/Taste (Android) → Spiel-eigene Navigation
   void CapApp.addListener("backButton", () => {
     const back = document.querySelector<HTMLButtonElement>(".screen.on .back");
