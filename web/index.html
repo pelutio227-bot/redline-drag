@@ -27,7 +27,14 @@
   button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   .screen{position:fixed;inset:0;display:none;flex-direction:column;overflow:hidden}
   .screen.on{display:flex}
-  .scroll{flex:1;overflow-y:auto;padding:0 18px calc(env(safe-area-inset-bottom,0px) + 90px)}
+  .scroll{flex:1;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:0 18px calc(env(safe-area-inset-bottom,0px) + 90px)}
+  .screen{overflow-x:hidden}
+  /* App-Gefühl: Knöpfe federn beim Druck, kein Hover-Zustand auf Touch */
+  .mbtn,.buy,.back,.vaultbuy,.packbtn,.gtab,.tab{transition:transform .12s ease,opacity .12s ease}
+  .mbtn:active,.buy:active,.vaultbuy:active,.packbtn:active,.gtab:active,.tab:active{transform:scale(.97);opacity:.9}
+  .back:active{transform:scale(.9)}
+  html.native-app{-webkit-text-size-adjust:100%}
+  #shopPacks{max-width:100%;box-sizing:border-box}
   #cv{position:fixed;inset:0;width:100%;height:100%;display:block;background:#0A0A0E}
 
   .display{font-weight:900;letter-spacing:-.03em;font-style:italic}
@@ -435,7 +442,7 @@
 
 <!-- VAULT -->
 <div class="screen" id="vault">
-  <div class="hd" style="width:100%"><button class="back" data-go="menu">‹</button><h2>Vault</h2><div class="cash" style="position:static" id="cash4">0</div></div>
+  <div class="hd" style="width:100%"><button class="back" data-go="menu">‹</button><h2>Vault &amp; Shop</h2><div class="cash" style="position:static" id="cash4">0</div></div>
   <div class="scroll" style="width:100%">
     <p class="kick" style="text-align:center;padding:4px 0 10px">Drop #001 · Limitierte Legende</p>
     <div class="vaultcard">

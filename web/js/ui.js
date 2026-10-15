@@ -905,6 +905,15 @@ const UI = (() => {
   })();
 
   setTimeout(()=>{ Shop.load(); }, 400);
+  // Haptik in der Store-App: leichtes Tippen auf Menü-/Kauf-/Zurück-Knöpfe, kräftiger beim Rennstart
+  if (window.NativeBridge?.isNative){
+    document.addEventListener("click", e=>{
+      const t = e.target.closest("button, .mbtn, .buy, .tab");
+      if (!t) return;
+      const strong = t.matches(".mbtn.primary, .vaultbuy, #raceStart, .go");
+      window.NativeBridge.haptic(strong ? "medium" : "light");
+    }, true);
+  }
   return { save, show, persist, toast, applyCloud, showLiveResults, shareVS, unlockVault,
     currentExhaust: ()=> save.cars[save.current]?.style.exhaust ?? 0 };
 })();
