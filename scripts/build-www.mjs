@@ -14,6 +14,10 @@ let html = readFileSync("www/index.html", "utf8");
 html = html.replace(/<link rel="manifest"[^>]*>\s*/g, "");
 // Service Worker gibt es in der App nicht (Assets sind gebündelt)
 html = html.replace(/navigator\.serviceWorker\.register\([^)]*\)[^;]*;?/g, "void 0;");
+// Gratis-Version ohne IAP: Vault & Shop + Stripe-Link (Web-Kauf) entfernen, falls die Bridge IAP abschaltet
+html = html.replace(/<script>window\.VAULT_LINK = [^<]*<\/script>/, '<script>window.VAULT_LINK = "";</script>');
+html = html.replace(/40 Autos/g, "39 Autos"); // ohne Vault-Auto KURO ØNI (nur per Kauf)
+html = html.replace("</head>", '<style>html.iap-off .mbtn.vault, html.iap-off #vault .vaultbuy, html.iap-off #shopPacks{display:none !important}</style>\n</head>');
 html = html.replace("</head>", '<script src="js/native-bridge.js"></script>\n</head>');
 writeFileSync("www/index.html", html);
 console.log("www/ gebaut aus", SRC);

@@ -9,13 +9,16 @@ import { App as CapApp } from "@capacitor/app";
 
 const RC_KEY = Capacitor.getPlatform() === "ios" ? "appl_ZvNXrhYqzwYdKiHPLWRprvusnCK" : "";
 const isNative = Capacitor.isNativePlatform();
+/** Version 1.0 erscheint gratis ohne In-App-Käufe: RevenueCat wird nicht gestartet, Shop/Vault sind ausgeblendet.
+ *  Für 1.0.1 (IAPs eingereicht, Paid-Apps-Vertrag aktiv) auf true stellen. */
+const IAP_ENABLED = false;
 
 export interface ProductInfo { id: string; price: string; title: string }
 export interface PurchaseOutcome { ok: boolean; cancelled?: boolean; error?: string; owned: string[]; consumed?: string }
 
 let configured = false;
 async function ensure(): Promise<boolean> {
-  if (!isNative || !RC_KEY) return false;
+  if (!isNative || !RC_KEY || !IAP_ENABLED) return false;
   if (!configured) {
     try {
       await Purchases.setLogLevel({ level: LOG_LEVEL.WARN });
@@ -84,13 +87,13 @@ async function openUrl(url: string): Promise<void> {
   try { await Browser.open({ url }); } catch { window.open(url, "_blank"); }
 }
 
-const bridge = { isNative, platform: Capacitor.getPlatform(), products, purchase, restore, owned, haptic, openUrl };
+const bridge = { isNative, iapEnabled: IAP_ENABLED, platform: Capacitor.getPlatform(), products, purchase, restore, owned, haptic, openUrl };
 (window as unknown as { NativeBridge: typeof bridge }).NativeBridge = bridge;
 
 if (isNative) {
   void StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
   void StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
-  const mark = () => document.documentElement?.classList.add("native-app", "native-" + Capacitor.getPlatform());
+  const mark = () => document.documentElement?.classList.add("native-app", "native-" + Capacitor.getPlatform(), IAP_ENABLED ? "iap-on" : "iap-off");
   mark(); document.addEventListener("DOMContentLoaded", mark);
   // Zurück-Geste/Taste (Android) → Spiel-eigene Navigation
   void CapApp.addListener("backButton", () => {
