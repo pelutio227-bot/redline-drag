@@ -5,211 +5,8 @@
 // automatisch, Streckenobjekte (Lichtmasten, Distanztafeln, Tribüne, Leitplanken)
 // für echtes Geschwindigkeitsgefühl, endlose Gegnerleiter.
 
-const QMILE = 402.336, HMILE = 804.672;
-let raceDist = QMILE;   // pro Rennen gesetzt (Race.start)
-
-function buildSpec(carKey, carState){
-  const def = CAR_DEFS[carKey];
-  const up = carState.up, tune = carState.tune;
-  const powerMul = 1 + up.engine*0.15 + (up.turbo ? 0.28 : 0);
-  const mass = def.mass - up.weight*70;
-  const mu = (1.02 + up.tires*0.16) * (def.grip ?? 1);
-  const shiftTime = 0.27 - up.trans*0.05;
-  return {
-    def, key: carKey, powerMul, mass, mu, shiftTime,
-    gears: tune.gears.slice(0, def.gears.length), final: tune.final,
-    nosMax: 0.9 + up.nos * 1.6, turbo: up.turbo, launchRpm: tune.launchRpm,
-  };
-}
-
-function makeRacer(spec){
-  return {
-    spec, v:0, s:0, rpm: spec.def.idle, gear:0,
-    shifting:0, spin:0, nos: spec.nosMax, nosOn:false,
-    throttle:0, finished:false, time:null, trap:0,
-    launched:false, rt:null, boost:0, aVis:0, wheelA:0,
-    lastShiftQ:null, overRev:false, boostMul:1.07, launchQ:null, launchAt:0,
-    clutch:0, clutchRpm:0,
-  };
-}
-
-function stepRacer(r, dt, t){
-  const sp = r.spec, def = sp.def;
-  // Rad-Rotation (auch nach Ziel)
-  r.wheelA += (r.v / def.wheelR) * dt + r.spin*30*dt;
-  if (r.finished){ const a=-6; r.v=Math.max(0,r.v+a*dt); r.s+=r.v*dt; r.aVis=a; return; }
-
-  const g = sp.gears[r.gear] * sp.final;
-  const wheelRpmToV = (2*Math.PI*def.wheelR)/60;
-
-  if (!r.launched){
-    if (r.manualRev){
-      // Launch-Balancing: Gas = Nadel steigt (oben träger), loslassen = fällt
-      if (r.throttle > 0.05){
-        const rate = 5200 * Math.max(0.22, 1.12 - r.rpm/def.redline);
-        r.rpm = Math.min(def.redline + 150, r.rpm + rate*dt);
-      } else {
-        // Sanftes Absinken (Motorbremse) statt hartem Sturz — Nadel bleibt lesbar
-        const fall = 1300 + r.rpm*0.24;
-        r.rpm = Math.max(def.idle, r.rpm - fall*dt);
-      }
-    } else { // KI: hält Launch-RPM automatisch
-      const target = (r.staged || r.throttle > 0.05) ? sp.launchRpm : def.idle;
-      r.rpm += (target - r.rpm) * Math.min(1, 7*dt);
-    }
-    r.aVis = 0;
-    return;
-  }
-  const roadRpm = Math.max(def.idle, (r.v / wheelRpmToV) * g);
-  // Kein harter Sturz auf Leerlauf beim Launch: Kupplung schleift die hoch-
-  // gedrehte Nadel über ~0.6s sanft auf die Fahr-Drehzahl runter, während das
-  // Auto beschleunigt — die Nadel «trifft» die Strasse statt zu springen.
-  let rpmTarget = roadRpm + r.spin*2400;
-  if (r.clutch > 0){
-    r.clutch = Math.max(0, r.clutch - dt);
-    const k = r.clutch / 0.6;
-    rpmTarget = Math.max(rpmTarget, r.clutchRpm*k + roadRpm*(1-k));
-  }
-  rpmTarget = Math.min(def.redline + 300, rpmTarget);
-  r.rpm += (rpmTarget - r.rpm) * Math.min(1, 18*dt);   // flüssige Nadel statt Sprung
-  r.overRev = r.rpm >= def.redline && r.throttle > 0 && r.gear < sp.gears.length-1;
-
-  let torque = torqueAt(def, r.rpm) * sp.powerMul;
-  if (r.boost > 0){ torque *= (r.boostMul ?? 1.07); r.boost -= dt; }  // PERFECT-/Launch-Bonus
-  if (r.nosOn && r.nos > 0){ torque *= 1.38; r.nos -= dt; if (r.nos<=0) r.nosOn=false; }
-  if (r.shifting > 0){ torque *= 0.12; r.shifting -= dt; }
-  if (r.rpm >= def.redline) torque *= 0.22;                   // Begrenzer
-  let F = (torque * g * 0.85) / def.wheelR * r.throttle;
-
-  const Fmax = sp.mu * sp.mass * 9.81 * 0.62;
-  if (F > Fmax){
-    r.spin = Math.min(1, r.spin + (F-Fmax)/Fmax * 2.2 * dt);
-    F = Fmax * (1 - r.spin*0.35);
-  } else r.spin = Math.max(0, r.spin - 2.5*dt);
-
-  const drag = 0.40 * r.v * r.v, roll = 180;
-  const a = (F - drag - roll) / sp.mass;
-  r.aVis = a;
-  r.v = Math.max(0, r.v + a*dt);
-  r.s += r.v*dt;
-  if (r.s >= raceDist){ r.finished = true; r.time = t; r.trap = r.v*3.6; }
-}
-
-// Grüne Schaltzone: Breite pro Auto (def.zone). Enge Zone = schwerer zu
-// treffen, dafür stärkerer PERFECT-Boost (Spezial-Autos wie SHINIGAMI/RYUJIN).
-function shiftZone(def){
-  const w = def.zone ?? 530;
-  return [def.redline-120-w, def.redline-120];
-}
-function zoneBoostMul(def){ return 1 + 37/(def.zone ?? 530); } // 650→+5.7% … 300→+12.3%
-
-function doShift(r){
-  const sp = r.spec, def = sp.def;
-  if (!r.launched || r.finished || r.shifting > 0) return null;
-  if (r.gear >= sp.gears.length-1) return null;
-  const [z0,z1] = shiftZone(def);
-  let q;
-  if (r.rpm >= z0 && r.rpm <= z1) q = "PERFECT";
-  else if (r.rpm > z1) q = "SPÄT";
-  else if (r.rpm > z0-900) q = "GUT";
-  else q = "FRÜH";
-  r.lastShiftQ = q;
-  r.gear++;
-  r.shifting = sp.shiftTime * (q==="PERFECT" ? 0.7 : 1);
-  if (q === "PERFECT"){ r.boost = 0.6; r.boostMul = zoneBoostMul(def); } // Grün getroffen
-  return q;
-}
-
-// Launch-Boost: Gas exakt bei Grün = Extra-Schub, skaliert mit Genauigkeit
-function launchBoost(r, rt){
-  const acc = Math.max(0, 1 - rt/0.25);          // 0.00s perfekt … ≥0.25s nichts
-  if (acc <= 0) return;
-  r.boost = 1.0;
-  r.boostMul = 1 + 0.12 * Math.pow(acc, 1.5);    // bis +12% für 1s
-  r.launchQ = rt <= 0.08 ? "PERFECT START" : rt <= 0.18 ? "GUTER START" : null;
-}
-
-// ── Gegner: 8 handgebaut + endlos generiert ─────────────────────────────────
-const OPP_BASE = [
-  { name:"RUSTY",  emoji:"🧢", car:"urban",  power:0.62, reaction:[0.60,0.95], slack:2300, hue:95,  prize:350,  desc:"Mamas Kompakter. Ehrlich." },
-  { name:"NADIA",  emoji:"🎧", car:"kaze",   power:0.74, reaction:[0.48,0.75], slack:1500, hue:200, prize:600,  desc:"Hört beim Fahren Techno." },
-  { name:"JOEL",   emoji:"🧊", car:"falco",  power:0.82, reaction:[0.40,0.60], slack:1100, hue:150, prize:950,  desc:"Eiskalt am Start." },
-  { name:"DARA",   emoji:"😎", car:"rota",   power:0.88, reaction:[0.34,0.52], slack:800,  hue:280, prize:1400, desc:"Ihr Wankel kreischt nachts." },
-  { name:"VITO",   emoji:"🕶", car:"apex",   power:0.90, reaction:[0.30,0.48], slack:650,  hue:45,  prize:2000, desc:"Sein V8 schläft nie." },
-  { name:"KEIKO",  emoji:"⚡", car:"temp",   power:0.96, reaction:[0.25,0.40], slack:450,  hue:210, prize:2800, desc:"AWD. NOS. Kein Erbarmen." },
-  { name:"MARKO",  emoji:"🐺", car:"taifun", power:1.00, reaction:[0.22,0.34], slack:350,  hue:0,   prize:3800, desc:"Der Wolf der Westrampe." },
-  { name:"KING",   emoji:"👑", car:"kami",   power:1.05, reaction:[0.19,0.30], slack:260,  hue:355, prize:5200, desc:"Der King der Viertelmeile." },
-];
-const OPP_NAMES = ["SPIKE","LUNA","ORKAN","MISTA J","YUKI","BRUTUS","VEGA","GHOST","PANTHER","SIRIUS",
-  "NITRO-NELL","EL RAYO","MIDNIGHT","DUKE","AKUMA","SANTOS","VALKYRIE","KAISER","MAMBA","RIKO",
-  "THUNDER-T","LA BRUJA","OZZY","KRAKEN","SEVEN","DIABLO","FROSTBITE","JUNO","BARON","XENIA",
-  "HAVOC","PIRANHA","SABLE","MAGNUS","VIXEN","COMET","GRIZZLY","NOVA","RAZOR","OMEGA"];
-const OPP_EMOJI = ["🔥","🌙","🌪","🃏","❄️","🦍","🌟","👻","🐆","💫",
-  "💉","⚡","🌑","🎩","😈","🌴","🛡","👑","🐍","🎯",
-  "⛈","🔮","🦴","🐙","7️⃣","🔱","🧊","🚀","🎖","💎",
-  "💥","🐟","🖤","🧲","🦊","☄️","🐻","✨","🪒","♾"];
-const OPP_DESCS = [
-  "Jeder Sieg macht die Strasse hungriger.","Hat noch nie zurückgeschaut.",
-  "Fährt nur nachts. Verliert nie bei Regen.","Sein Auto kennt keine Gnade.",
-  "Die Legende der Ostbrücke.","Kommt aus dem Nichts, geht als Erste:r.",
-  "Tunt seit 20 Jahren. Schläft in der Garage.","Kalt. Präzise. Unbezahlbar.",
-];
-function getOpponent(tier){
-  if (tier < OPP_BASE.length) return { ...OPP_BASE[tier], tier };
-  const i = tier - OPP_BASE.length;
-  // Hohe Tiers fahren die Elite-Autos (bis Unlock-Level 70)
-  const pool = CAR_KEYS.filter(k=>CAR_DEFS[k].unlock <= Math.min(70, 8 + i*2));
-  const car = pool[(tier*7) % pool.length];
-  return {
-    name: OPP_NAMES[i % OPP_NAMES.length] + (i >= OPP_NAMES.length ? " " + (Math.floor(i/OPP_NAMES.length)+1) : ""),
-    emoji: OPP_EMOJI[i % OPP_EMOJI.length], car, tier,
-    power: Math.min(1.8, 1.06 + i*0.024),   // nur Startwert — adaptOpponent() gleicht ans Spieler-Setup an
-    reaction: [Math.max(0.15, 0.19-i*0.002), Math.max(0.22, 0.30-i*0.003)],
-    slack: Math.max(120, 260 - i*10),
-    // Preisgeld flach gedeckelt: kein Geld-Inflations-Endgame mehr (war 5200+i*1400
-    // → 60k+/Rennen). Reichtum kommt jetzt aus Serien-Siegen, nicht aus Tier-Zahl.
-    hue: (tier*47)%360, prize: Math.min(14000, 5200 + i*350),
-    desc: OPP_DESCS[(tier*3) % OPP_DESCS.length],
-  };
-}
-
-// ── Adaptive Karriere-Balance ────────────────────────────────────────────────
-// Der Gegner wird ans ECHTE Potenzial des Spieler-Setups angeglichen: beide
-// Autos werden offline mit identischem Ideal-Fahrer simuliert, dann wird die
-// Gegner-Power iterativ auf eine Ziel-ET relativ zum Spieler skaliert.
-// Rennen bleiben dadurch auf jedem Level knapp — entschieden wird über
-// Reaktion, Launch-Qualität, Schaltzonen und NOS, nicht über Zahlen-Power.
-function simulateET(spec){
-  const r = makeRacer(spec);
-  r.launched = true; r.throttle = 1;
-  r.rpm = spec.launchRpm; r.clutch = 0.6; r.clutchRpm = spec.launchRpm;
-  const [z0, z1] = shiftZone(spec.def), zm = (z0 + z1) / 2;
-  let t = 0;
-  while (!r.finished && t < 60){
-    if (!r.nosOn && r.nos > 0 && r.v*3.6 > 60) r.nosOn = true;
-    if (r.shifting <= 0 && r.gear < spec.gears.length-1 && r.rpm >= zm){
-      r.gear++; r.shifting = spec.shiftTime;
-    }
-    t += 1/60;
-    stepRacer(r, 1/60, t);
-  }
-  return r.finished ? r.time : 999;
-}
-function adaptOpponent(pSpec, oSpec, tier){
-  // Ziel: früh klar schlagbar (bis +5.5% ET), ab Tier 8 eng — KI-Potenzial
-  // höchstens 1% ÜBER dem Spieler (Perfect-Launch/-Shifts + NOS gleichen das aus).
-  const f = tier < 8 ? 1.055 - tier*0.007 : Math.max(0.99, 1.0 - (tier-8)*0.0012);
-  const target = simulateET(pSpec) * f;
-  if (target > 500) return true;
-  let err = 1;
-  for (let i = 0; i < 5; i++){
-    err = simulateET(oSpec) / target;
-    if (Math.abs(err - 1) < 0.004) break;
-    oSpec.powerMul = Math.min(9, Math.max(0.2, oSpec.powerMul * Math.pow(err, 2)));
-    oSpec.mu = Math.min(2.4, Math.max(0.6, oSpec.mu * Math.pow(err, 0.25)));
-  }
-  return Math.abs(err - 1) < 0.02;   // false = Gegner-Auto kann das Ziel nicht erreichen
-}
+// Physik, Rivalen und KI liegen seit 22.10.2026 in sim.js (DOM-frei, testbar).
+let raceDist = QMILE;   // pro Rennen gesetzt (Race.start), nur fürs Zeichnen
 
 // ── Rennen ───────────────────────────────────────────────────────────────────
 const Race = (() => {
@@ -230,170 +27,154 @@ const Race = (() => {
   const parts=[];
   const input = { gas:false, nos:false };
 
+  // Ereignis-Haken für die UI (Knauf-Animation, PERFECT-Blitz)
+  let onEvent = null;
   async function start(opts){
     onDone = opts.onDone;
-    raceDist = opts.opp.half ? HMILE : QMILE;
-    const spec = buildSpec(opts.carKey, opts.carState);
+    onEvent = opts.onEvent ?? null;
+    const opp = opts.opp;
+    raceDist = opp.half ? HMILE : QMILE;
+    const spec = buildSpec(opts.carKey, opts.carState, raceDist);
     const style = opts.carState.style;
-    const oppDef = { up: opts.opp.up ?? {engine:1,turbo:0,tires:1,trans:0,weight:0,nos:0},
-      tune: opts.opp.tune ?? { gears: CAR_DEFS[opts.opp.car].gears.slice(), final: CAR_DEFS[opts.opp.car].final,
-             launchRpm: Math.round(CAR_DEFS[opts.opp.car].redline*0.55) },
-      style: opts.opp.style ?? { hue: opts.opp.hue ?? 0, drop:10, rim:1, exhaust:1, spoiler:1 } };
-    let oSpec = buildSpec(opts.opp.car, oppDef);
-    oSpec.powerMul *= (opts.opp.power ?? 1);
-    // KI-Rennen (Karriere/Quick/Bet): Gegner-Potenzial ans Spieler-Setup angleichen.
-    // Ghost (echtes Freund-Auto) und LIVE-Duelle bleiben unangetastet.
-    if (!opts.live && !opts.opp.vsGhost){
-      if (!adaptOpponent(spec, oSpec, opts.opp.tier ?? 0)){
-        // Gegner-Auto zu schwach fürs Spieler-Setup (Traktion/Drag-Limit) →
-        // Mirror-Duell: gleiches Auto, gleiche Upgrades + Tune wie der Spieler
-        // (identisches Potenzial), eigener Lack. Adaption justiert nur noch ±1%.
-        opts.opp = { ...opts.opp, car: opts.carKey };
-        oppDef.up = { ...opts.carState.up };
-        oppDef.tune = { gears: opts.carState.tune.gears.slice(), final: opts.carState.tune.final,
-                        launchRpm: opts.carState.tune.launchRpm };
-        oSpec = buildSpec(opts.carKey, oppDef);
-        adaptOpponent(spec, oSpec, opts.opp.tier ?? 0);
-      }
+    let oSpec, oStyle, ai = null;
+    if (opts.duo || opp.vsGhost){
+      // Echtes Auto eines Menschen (Duo / Freund-Link): exakt sein Setup
+      const ost = { up: opp.up, tune: opp.tune };
+      oSpec = buildSpec(opp.car, ost, raceDist);
+      oStyle = opp.style ?? { hue: opp.hue ?? 0, drop:10, rim:1, exhaust:1, spoiler:1 };
+      if (opp.vsGhost) ai = aiCreate(oSpec, 0.7);
+    } else {
+      // KI-Rivale: feste Stärke aus der Liga (nicht ans Spieler-Setup angeglichen)
+      oSpec = rivalSpec(opp, opts.nerves ?? 0);
+      oStyle = { hue: opp.hue ?? 0, drop:10, rim:1 + (opp.tier ?? 0) % 3, exhaust: Math.min(3, 1 + Math.floor((opp.league ?? 0)/2)),
+                 spoiler: (opp.league ?? 0) >= 2 ? 2 : 1, kit: (opp.league ?? 0) >= 4 ? 2 : (opp.league ?? 0) >= 2 ? 1 : 0 };
+      ai = aiCreate(oSpec, opp.skill ?? 0.5);
     }
-
     const [pBody, oBody] = await Promise.all([
       carBodyImage(opts.carKey, style),
-      carBodyImage(opts.opp.car, oppDef.style),
+      carBodyImage(opp.car, oStyle),
     ]);
+    const greenAt = opts.duo ? opts.duo.greenAt : 2.6 + Math.random()*0.8;
+    const run = runCreate(spec, greenAt);
+    const remoteRacer = makeRacer(oSpec);
     st = {
-      phase:"pre", t:0, treeT:-1, green:null,
-      p: Object.assign(makeRacer(spec), {manualRev:true}), pBody, pWheel: wheelSprite(style.rim??0, 40),
+      run, phase:"pre", t:0, treeT:0, green:null, greenAt,
+      p: run.p, pBody, pWheel: wheelSprite(style.rim??0, 40),
       pAx: carAx(opts.carKey, spec.def), pPitch:0, pPitchV:0,
-      ai: { racer: makeRacer(oSpec),
-            reaction: opts.opp.reaction ? opts.opp.reaction[0]+Math.random()*(opts.opp.reaction[1]-opts.opp.reaction[0]) : 0.3,
-            slack: opts.opp.slack ?? 350, nosAt: oSpec.nosMax>0 ? 60 : null },
-      oBody, oWheel: wheelSprite(oppDef.style.rim??1, 40),
-      oAx: carAx(opts.opp.car, oSpec.def), oPitch:0, oPitchV:0,
-      opp: opts.opp, doneT:null, flash:0, exh: style.exhaust ?? 0,
+      ai: ai ?? { racer: remoteRacer },
+      isAI: !!ai,
+      oBody, oWheel: wheelSprite(oStyle.rim??1, 40),
+      oAx: carAx(opp.car, oSpec.def), oPitch:0, oPitchV:0,
+      opp, doneT:null, flash:0, exh: style.exhaust ?? 0,
       exTipF: exhaustXFrac(opts.carKey, spec.def), neon: !!style.neon, hue: style.hue ?? 0,
-      live: opts.live ?? null, remote: null, remoteEt: null,
+      duo: opts.duo ?? null, remote: null, waiting: !!opts.duo, ended:false,
     };
+    input.gas = false; input.nos = false; input.shiftReq = false;
     AudioSys.unlock(); AudioSys.startEngine(soundProfile(opts.carKey, style.exhaust ?? 0));
-    const sh = document.getElementById("pShift"); if (sh) sh.dataset.gear = "0";  // Knauf auf N
+    const sh = document.getElementById("pShift"); if (sh) sh.dataset.gear = "0";
     parts.length = 0;
     lastT = performance.now(); acc = 0;
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(loop);
   }
-  function stop(){ cancelAnimationFrame(raf); AudioSys.stopEngine(); AudioSys.skid(false); st=null; }
+  function stop(){
+    cancelAnimationFrame(raf); AudioSys.stopEngine(); AudioSys.skid(false); st=null;
+    input.gas = false; input.nos = false; input.shiftReq = false;
+  }
+  function clear(){ if (!st) g.clearRect(0, 0, W, H); }
 
   function physics(dt){
-    const p = st.p;
-    st.t += dt;
-    p.throttle = input.gas ? 1 : 0;
-
-    if (st.phase === "pre"){
-      // LIVE: auf den synchronen Startzeitpunkt beider Spieler warten
-      if (st.live && Date.now() < st.live.startAt){
-        st.t = 0;
-        stepRacer(p, dt, st.t);
-        return;
-      }
-      // Ampel startet AUTOMATISCH nach kurzem Moment
-      stepRacer(p, dt, st.t);
-      if (st.t >= 1.0){
-        st.phase = "tree"; st.treeT = 0;
-        // LIVE: beide Seiten nutzen dasselbe Grün-Timing (fair)
-        st.greenAt = st.live ? st.live.greenAt : 2.6 + Math.random()*0.8;
-      }
-      return;
+    const run = st.run, p = st.p;
+    // Duo: bis zum gemeinsamen Startzeitpunkt nur warten (Countdown, kein Motor-Input
+    // → beide Läufe starten exakt gleich bei Tick 0)
+    if (st.waiting){
+      if (Date.now() < st.duo.startAt){ p.throttle = 0; stepRacer(p, dt, 0); return; }
+      st.waiting = false; p.rpm = p.spec.def.idle;
     }
+    const wasLaunched = p.launched;
+    const ev = runTick(run, { gas: input.gas, nos: input.nos, shift: input.shiftReq });
+    input.shiftReq = false;
+    st.t = run.t; st.treeT = run.treeT;
+    if (run.green != null && st.green == null){ st.green = run.green; AudioSys.beep(880,.3,.4); }
+    if (run.phase === "tree" && st.phase === "pre") st.phase = "tree";
     if (st.phase === "tree"){
-      st.treeT += dt;
       // ANTI-LAG beim Launch-Control: Nadel oben halten → der Auspuff ballert
-      // (Knall + Flammen), dichter je fetter das Auspuff-Kit
       if (!p.launched && p.rpm > p.spec.def.redline*0.52 && Math.random() < dt*(5 + st.exh*2)){
         AudioSys.bang(0.5 + st.exh*0.3);
         st.antilag = 2 + ((Math.random()*3)|0);
         st.shake = Math.min(1, (st.shake||0) + 0.08);
       }
-      if (st.green == null && st.treeT >= st.greenAt){ st.green = st.t; AudioSys.beep(880,.3,.4); }
-      if (st.green != null && !p.launched && input.gas){
-        p.launched = true;
-        p.rt = st.t - st.green;
-        p.clutch = 0.6; p.clutchRpm = p.rpm;   // Nadel gleitet runter statt Sprung
-        const [z0, z1] = shiftZone(p.spec.def);
-        if (p.rpm >= z0 && p.rpm <= z1){        // Nadel in der grünen Zone = Boost!
-          p.boost = 1.0; p.boostMul = zoneBoostMul(p.spec.def);
-          p.launchQ = "PERFECT LAUNCH"; p.launchAt = st.t;
-        } else if (p.rpm > z1){ p.spin = 0.9; } // überdreht = Wheelspin
-        else if (p.rt < 0.25){ launchBoost(p, p.rt); p.launchAt = st.t; } // Reaktions-Bonus
-        st.shake = Math.min(1, (st.shake||0) + 0.45);
-        if (p.launchQ){ st.flash = 0.35; AudioSys.whoosh(); }
-        st.phase = "run";
-      }
-      stepRacer(p, dt, st.t);
-      st.live ? remoteStep(dt) : aiGo(dt);
-      return;
     }
-    // run
-    p.nosOn = input.nos && p.nos > 0;
-    // Getunter Knall «ab und an» während der Fahrt: kurzer Backfire mit Flammen
-    if (p.launched && !p.finished && p.throttle && p.rpm > p.spec.def.redline*0.6 &&
+    if (ev?.launch || (!wasLaunched && p.launched)){
+      st.phase = "run";
+      st.shake = Math.min(1, (st.shake||0) + 0.45);
+      if (p.launchQ){ st.flash = 0.35; AudioSys.whoosh(); }
+      onEvent?.({ launch:true });
+    }
+    if (ev?.shift){
+      AudioSys.shiftPop(st.exh); if (p.spec.turbo) AudioSys.bov();
+      if (ev.shift === "PERFECT"){
+        st.shake = Math.min(1, (st.shake||0) + 0.25);
+        st.flash = Math.max(st.flash||0, 0.2);
+        AudioSys.whoosh();
+      }
+      onEvent?.({ shift: ev.shift, gear: p.gear });
+    }
+    if (st.phase === "run" && p.launched && !p.finished && p.throttle && p.rpm > p.spec.def.redline*0.6 &&
         Math.random() < dt*(0.30 + st.exh*0.15)){
       AudioSys.bang(0.9 + st.exh*0.4);
       st.antilag = 3 + ((Math.random()*3)|0);
       st.shake = Math.min(1, (st.shake||0) + 0.12);
     }
-    stepRacer(p, dt, st.t);
-    st.live ? remoteStep(dt) : aiGo(dt);
+    st.isAI ? aiStep(dt) : remoteStep(dt);
     if (p.finished && st.doneT == null){
       st.doneT = st.t;
       st.shake = Math.min(1, (st.shake||0) + 0.5);
       st.flash = 0.5;
+      if (st.duo) st.duo.onLocalFinish?.({ et: runEt(run), trap: p.trap, rt: p.rt, events: run.events.slice(),
+        perfects: p.perfects, launchQ: p.launchQ });
     }
-    if (st.doneT != null && st.phase !== "done"){
-      const oppDone = st.live
-        ? (st.remoteEt != null || st.t - st.doneT > 10)     // auf echten Gegner warten
-        : (st.t - st.doneT > 2.0 || st.ai.racer.finished);
-      if (oppDone){ st.phase = "done"; setTimeout(finish, 350); }
+    if (!st.duo && st.phase !== "done"){
+      const o = st.ai.racer;
+      if (st.doneT != null && (st.t - st.doneT > 2.0 || o.finished)){ st.phase = "done"; setTimeout(finish, 350); }
+      // Rivale längst im Ziel, Spieler kommt nicht an (nicht gestartet) → Niederlage
+      else if (st.doneT == null && o.finished && st.green != null && st.t - st.green - o.time > 6){
+        st.phase = "done"; setTimeout(finish, 350);
+      }
     }
   }
-  // LIVE: Gegner-Auto folgt den empfangenen Positions-Snapshots (sanft geglättet)
+  // Duo: Gegner-Auto aus zeitgestempelten Snapshots (Tick-Index) — Position wird auf
+  // den EIGENEN Tick hochgerechnet, unabhängig von der Netz-Latenz.
   function remoteStep(dt){
     const o = st.ai.racer, R = st.remote;
     if (!R) return;
-    o.launched = true;
+    o.launched = R.s > 0.05 || R.v > 0;
+    const ahead = Math.max(0, Math.min(0.6, (st.run.tick - R.tick) / 120));
+    const target = R.fin ? Math.max(o.s, R.s) : R.s + R.v*ahead;
+    o.s += (target - o.s) * Math.min(1, 12*dt);
     o.v = R.v;
-    const age = Math.min(0.5, (performance.now() - R.rxAt)/1000);
-    const target = R.s + R.v*age;
-    o.s += (target - o.s) * Math.min(1, 10*dt);
     o.wheelA += (o.v / o.spec.def.wheelR) * dt;
-    o.aVis = 0;
-    if (R.fin && !o.finished) o.finished = true;
+    o.aVis = R.a ?? 0;
+    o.rpm = R.rpm ?? o.rpm;
+    if (R.fin && !o.finished){ o.finished = true; }
   }
-  function aiGo(dt){
+  function aiStep(dt){
     if (st.green == null) return;
-    const a = st.ai, t = st.t - st.green;
-    const def = a.racer.spec.def;
-    if (!a.racer.launched){
-      a.racer.staged = true; a.racer.throttle = 1; a.racer.rpm = a.racer.spec.launchRpm;
-      if (t >= a.reaction){ a.racer.launched = true; a.racer.rt = a.reaction; launchBoost(a.racer, a.reaction); }
-    } else {
-      a.racer.throttle = 1;
-      if (a.racer.rpm > def.redline - a.slack) doShift(a.racer);
-      if (a.nosAt != null && a.racer.s > a.nosAt && a.racer.nos > 0) a.racer.nosOn = true;
-    }
-    stepRacer(a.racer, dt, t);
+    aiTick(st.ai, dt, st.t - st.green, true);
   }
   function finish(){
     const p = st.p, o = st.ai.racer;
     AudioSys.stopEngine(); AudioSys.skid(false);
-    const pT = p.time != null ? p.time - st.green : Infinity;
-    const oT = st.live ? (st.remoteEt ?? Infinity)
-                       : (o.time != null ? o.time : Infinity);
+    const pT = runEt(st.run) ?? Infinity;
+    const oT = o.time != null ? o.time : Infinity;
     const win = pT < oT;
     win ? AudioSys.winJingle() : AudioSys.loseThud();
     const res = { win, et:pT, trap:p.trap, rt:p.rt, oppEt: oT===Infinity?null:oT, opp: st.opp,
-                  perfects: p.lastShiftQ === "PERFECT", live: !!st.live };
+                  perfects: p.perfects, launchQ: p.launchQ };
     const cb = onDone; stop(); cb && cb(res);
   }
+  // Duo: Ergebnis steht fest (beide im Ziel / Abbruch) → Rennen beenden
+  function endDuo(){ if (st){ st.ended = true; stop(); } }
 
   // ── Render ──
   function loop(now){
@@ -402,7 +183,8 @@ const Race = (() => {
     let dt = (now-lastT)/1000; lastT = now;
     if (dt > 0.1) dt = 0.1;
     acc += dt;
-    while (acc >= DT){ physics(DT); acc -= DT; }
+    while (acc >= DT && st){ physics(DT); acc -= DT; }
+    if (!st) return;
     draw(dt);
     const p = st.p;
     AudioSys.engine(p.rpm, p.throttle, p.spec.turbo ? Math.min(1, p.throttle*(p.rpm/p.spec.def.redline)) : 0);
@@ -736,14 +518,18 @@ const Race = (() => {
     if (gelb && !st._bY){ st._bY = 1; AudioSys.beep(440,.12,.3); }
     // Status-Text unter der Ampel
     g.font = "800 13px system-ui"; g.textAlign = "center";
-    if (st.live && st.phase === "pre" && Date.now() < st.live.startAt){
-      g.fillStyle = "#FFC61A"; g.font = "900 24px system-ui";
-      g.fillText("LIVE — Start in " + Math.ceil((st.live.startAt - Date.now())/1000) + "…", x, y + r*11.4);
+    if (st.waiting){
+      g.fillStyle = "#FFC61A"; g.font = "italic 900 30px system-ui";
+      g.fillText("DUO — START IN " + Math.max(1, Math.ceil((st.duo.startAt - Date.now())/1000)), x, y + r*11.4);
       g.font = "800 13px system-ui";
     }
-    if (st.green == null){
-      g.fillStyle = "rgba(255,255,255,.8)";
-      g.fillText("Gas pumpen — Nadel in der GRÜNEN ZONE halten!", x, y + r*9.6);
+    if (st.green == null && !st.waiting){
+      const txt = "Gas pumpen — Nadel in der GRÜNEN ZONE halten!";
+      g.font = `800 ${W < 380 ? 12 : 13}px system-ui`;
+      const tw = g.measureText(txt).width + 22, ty = y + r*9.6;
+      g.fillStyle = "rgba(10,10,14,.72)"; rr(x - tw/2, ty - 16, tw, 24, 12); g.fill();
+      g.fillStyle = "rgba(255,255,255,.9)";
+      g.fillText(txt, x, ty);
     }
     if (st.green != null && !st.p.launched){
       g.fillStyle = "#2BE05E"; g.font = "900 26px system-ui";
@@ -904,9 +690,20 @@ const Race = (() => {
     }
   }
 
+  let _safeTop = null;
+  function safeTop(){
+    if (_safeTop == null){
+      const d = document.createElement("div");
+      d.style.cssText = "position:fixed;top:0;height:env(safe-area-inset-top,0px);visibility:hidden";
+      document.body.appendChild(d); _safeTop = d.getBoundingClientRect().height || 0; d.remove();
+      window.addEventListener("resize", () => { _safeTop = null; }, { once:true });
+    }
+    return _safeTop;
+  }
   function drawTop(){
     const p = st.p, o = st.ai.racer;
-    const y = Math.max(56, H*0.075), x0=W*0.14, x1=W*0.86;
+    // unter Statusleiste (Safe-Area) + HUD-Titel (2 Zeilen) — nie darüber
+    const y = safeTop() + 66, x0=W*0.14, x1=W*0.86;
     g.fillStyle = "rgba(255,255,255,.12)"; rr(x0,y,x1-x0,5,3); g.fill();
     const pf = Math.min(1,p.s/raceDist), of = Math.min(1,o.s/raceDist);
     g.fillStyle = "#8E92A3"; g.beginPath(); g.arc(x0+(x1-x0)*of, y+2.5, 5, 0, 7); g.fill();
@@ -928,36 +725,24 @@ const Race = (() => {
   }
 
   return {
-    start, stop, input,
-    shift(){
-      if (!st) return null;
-      const q = doShift(st.p);
-      if (q){ AudioSys.shiftPop(UI?.currentExhaust?.() ?? 0); if (st.p.spec.turbo) AudioSys.bov(); }
-      if (q === "PERFECT"){
-        st.shake = Math.min(1, (st.shake||0) + 0.25);
-        st.flash = Math.max(st.flash||0, 0.2);
-        AudioSys.whoosh();
-      }
-      return q;
-    },
+    start, stop, clear, endDuo, input,
+    // Schalten wird auf den nächsten Physik-Tick gelegt (deterministisch)
+    shift(){ if (st && st.p.launched && !st.p.finished) input.shiftReq = true; },
     nos(on){ if (st){ input.nos = on; AudioSys.nosHiss(on && st.p.nos>0); } },
     active(){ return !!st; },
     gear(){ return st ? st.p.gear : 0; },
     launched(){ return !!st?.p.launched; },
-    // LIVE-Duell: eigenen Zustand melden / Gegner-Zustand einspeisen
+    // Duo: eigener Zustand (mit Tick-Zeitstempel) / Gegner-Zustand einspeisen
     snapshot(){
-      if (!st) return null;
+      if (!st || st.waiting) return null;
       const p = st.p;
-      return { s: p.s, v: p.v, fin: p.finished,
-               et: (p.finished && p.time != null && st.green != null) ? p.time - st.green : null };
+      return { tick: st.run.tick, s: +p.s.toFixed(2), v: +p.v.toFixed(2), a: +p.aVis.toFixed(1),
+               rpm: Math.round(p.rpm), fin: p.finished };
     },
-    setRemote(payload){
-      if (!st) return;
-      st.remote = { ...payload, rxAt: performance.now() };
-      if (payload.et != null) st.remoteEt = payload.et;
-    },
+    setRemote(payload){ if (st) st.remote = payload; },
     debug(){ return st && { rpm: Math.round(st.p.rpm), green: st.green != null,
       launched: st.p.launched, launchQ: st.p.launchQ, boostMul: st.p.boostMul,
-      phase: st.phase, zone: shiftZone(st.p.spec.def) }; },
+      phase: st.phase, zone: shiftZone(st.p.spec.def), waiting: st.waiting, gear: st.p.gear,
+      finished: st.p.finished, s: st.p.s }; },
   };
 })();

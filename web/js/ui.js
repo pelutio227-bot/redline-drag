@@ -40,12 +40,13 @@ const UI = (() => {
         CAR_KEYS.forEach(k => { if (!s.cars[k]) s.cars[k] = defaultCarState(k); });
         if (s.current && !s.cars[s.current]) s.current = null;
         migrateStyle(s);
+        s.losses ??= {};
         return s;
       }
     } catch {}
     const cars = {};
     CAR_KEYS.forEach(k => cars[k] = defaultCarState(k));
-    return { money: 800, xp: 0, level: 1, tier: 0, current: null, name: "RACER", cars };
+    return { money: 800, xp: 0, level: 1, tier: 0, current: null, name: "RACER", cars, losses: {} };
   }
   const save = load();
   function persist(){
@@ -64,10 +65,12 @@ const UI = (() => {
   const xpNeed = lvl => 70 + lvl*55;
 
   // ── Screens ──
-  const SCREENS = ["menu","career","garage","results","starter","vschall","duel","vault"];
+  const SCREENS = ["menu","career","garage","results","starter","vschall","duo","vault"];
   function show(id){
     SCREENS.forEach(s=>{ const el=document.getElementById(s); if (el) el.classList.toggle("on", s===id); });
     document.getElementById("hud").classList.remove("on");
+    hideLevelUp();
+    if (id !== "results") Race.clear?.();      // kein eingefrorenes Rennbild hinter Garage & Co.
     if (id==="menu") renderMenu();
     if (id==="career") renderCareer();
     if (id==="garage") renderGarage();
@@ -86,8 +89,8 @@ const UI = (() => {
     AudioSys.unlock();
     const go = b.dataset.go;
     if (go === "quick") return startQuick();
-    if (go === "bet") return startBet();
-    if (go === "vs") return Live.openLobby();
+    if (go === "duo") return Duo.open();
+    if (go === "next") return startCareer(save.tier);
     show(go);
   }));
 
@@ -99,6 +102,12 @@ const UI = (() => {
     mc.src = img.src;
     mc.style.filter = `drop-shadow(0 24px 30px rgba(0,0,0,.6)) drop-shadow(0 4px 34px hsla(${st.hue},90%,55%,.42))`;
     document.getElementById("menuCarName").textContent = CAR_DEFS[save.current].name;
+    const o = rivalFor(save.tier);
+    const sm = document.querySelector('#menu [data-go="career"] small');
+    if (sm) sm.textContent = leagueLabel(o) + " · VS " + o.name;
+  }
+  function leagueLabel(o){
+    return o.league >= LEAGUES.length ? "Endlos-Liga" : `Liga ${o.league+1} · Rennen ${o.idx+1}/${LEAGUE_SIZE}`;
   }
 
   // ── Starter-Wahl (1 aus 3, Pokemon-Style) ──
@@ -120,7 +129,7 @@ const UI = (() => {
         save.cars[k].owned = true; save.current = k; persist();
         AudioSys.unlock(); AudioSys.winJingle();
         // Neuling kam über einen Live-Duell-Link → direkt in die Lobby
-        if (window.DUEL_CODE){ Live.openLobby(window.DUEL_CODE); return; }
+        if (window.DUEL_CODE){ const c = window.DUEL_CODE; window.DUEL_CODE = null; Duo.open(c); return; }
         show("menu");
       });
       el.appendChild(c);
@@ -137,35 +146,60 @@ const UI = (() => {
     return `<div class="sbs">${bar("Power",pw)}${bar("Leicht",wt)}${bar("Grip",gr)}${bar("Drehzahl",rv)}</div>`;
   }
 
-  // ── Karriere (endlose VS-Leiter) ──
+  // ── Karriere: Ligen mit eigenen Rivalen + Boss ──
+  // Rivalen haben feste Stärken (sim.js LEAGUES). Neben jedem Rivalen steht seine
+  // erwartete Zeit und deine — so sieht man sofort, was ein Upgrade bringt.
+  function rivalEt(o){ return o.et * (1 + 0.008*Math.min(3, save.losses?.[o.tier] || 0)); }
+  function compareTag(myEt, rEt){
+    const d = rEt - myEt;
+    if (d > 0.08)  return `<span class="tag ok">Du bist ${d.toFixed(2)}s schneller</span>`;
+    if (d > -0.08) return `<span class="tag mid">Kopf an Kopf</span>`;
+    return `<span class="tag bad">Rivale ${(-d).toFixed(2)}s vorne — tunen!</span>`;
+  }
   function renderCareer(){
     const el = document.getElementById("careerList");
     el.innerHTML = "";
-    const from = Math.max(0, save.tier-2);
-    for (let i = from; i <= save.tier + 3; i++){
-      const o = getOpponent(i);
-      o.half = (i+1) % 5 === 0;   // jeder 5. Tier: ½ Meile
+    const cur = rivalFor(save.tier), L = cur.league;
+    const myEt = carSimET(save.current, save.cars[save.current]);
+    const endless = L >= LEAGUES.length;
+    // Liga-Leiste
+    const chips = LEAGUES.map((lg, i) =>
+      `<i class="lchip ${i < L ? "done" : i === L ? "on" : ""}" title="${lg.name}">${i < L ? "✓" : i+1}</i>`).join("")
+      + `<i class="lchip ${endless ? "on" : ""}">∞</i>`;
+    const head = div("card lhead", `
+      <div class="lchips">${chips}</div>
+      <span class="vsl">${endless ? "ENDLOS-LIGA" : `LIGA ${L+1} VON ${LEAGUES.length}`}</span>
+      <b class="vsn">${endless ? "Nur die Härtesten" : LEAGUES[L].name}</b>
+      <span class="mut" style="font-size:12px">Dein Auto: <b style="color:var(--txt)">${CAR_DEFS[save.current].name}</b> · ≈ ${myEt.toFixed(2)}s</span>`);
+    el.appendChild(head);
+    const from = endless ? Math.max(LEAGUES.length*LEAGUE_SIZE, save.tier-1) : L*LEAGUE_SIZE;
+    const to = endless ? save.tier + 2 : L*LEAGUE_SIZE + LEAGUE_SIZE - 1;
+    for (let i = from; i <= to; i++){
+      const o = rivalFor(i);
       const beaten = i < save.tier, locked = i > save.tier, current = i === save.tier;
+      const rEt = rivalEt(o);
       const c = document.createElement("div");
-      c.className = "card vsrow" + (locked ? " lock" : "") + (current ? " cur" : "");
+      c.className = "card vsrow" + (locked ? " lock" : "") + (current ? " cur" : "") + (o.boss ? " boss" : "");
       c.innerHTML = `
         <div class="vsava">${o.emoji}</div>
         <div class="nm">
-          <span class="vsl">TIER ${i+1} ${o.half?'· <b style="color:#FFC61A">½ MEILE</b>':""} ${beaten?'· <b style="color:var(--grn)">BESIEGT ✓</b>':""}</span>
+          <span class="vsl">${o.boss ? '<b style="color:#FFC61A">BOSS</b> · ' : ""}RENNEN ${o.idx+1}${beaten ? ' · <b style="color:var(--grn)">BESIEGT ✓</b>' : ""}</span>
           <b class="vsn">VS ${o.name}</b>
-          <span>${o.desc.replace(/\.$/,"")} · ${CAR_DEFS[o.car].name} · ${Math.round(carPS(CAR_DEFS[o.car])*(o.power??1))}&nbsp;PS</span>
+          <span>${CAR_DEFS[o.car].name} · ≈ ${rEt.toFixed(2)}s</span>
+          ${current ? compareTag(myEt, rEt) : ""}
           <span style="color:var(--grn);font-weight:800">${beaten
             ? `$${Math.round(o.prize/3).toLocaleString("de-CH")} <span class="mut" style="font-weight:600">(Rematch ⅓)</span>`
             : `$${o.prize.toLocaleString("de-CH")} Preisgeld`}</span>
         </div>
-        <button class="buy ${current?"can":""}">${locked?"🔒":(beaten?"↺":"RACE")}</button>`;
-      if (!locked) c.querySelector("button").addEventListener("click", ()=>startRace(o, i));
+        <button class="buy ${current?"can":""}" aria-label="${locked?"gesperrt":"Rennen starten"}">${locked?"🔒":(beaten?"↺":"RACE")}</button>`;
+      if (!locked) c.querySelector("button").addEventListener("click", ()=>startCareer(i));
       el.appendChild(c);
     }
-    const hint = document.createElement("p");
-    hint.className = "mut"; hint.style.cssText = "font-size:12px;text-align:center;padding:14px";
-    hint.textContent = "… es geht endlos weiter. Jeder Gegner ist besser getunt.";
-    el.appendChild(hint);
+    if (!endless){
+      const nx = L+1 < LEAGUES.length ? `Liga ${L+2} · ${LEAGUES[L+1].name}` : "Endlos-Liga";
+      el.appendChild(div("card lock nextl", `<span class="vsl">DANACH</span><b class="vsn">🔒 ${nx}</b>
+        <span class="mut" style="font-size:12px">Schlag den Boss ${LEAGUES[L].rivals[LEAGUE_SIZE-1].name}, dann geht's weiter.</span>`));
+    }
   }
 
   // ── Garage ──
@@ -180,7 +214,7 @@ const UI = (() => {
     document.querySelectorAll("#gTabs button").forEach(x=>x.classList.toggle("on", x===b));
     renderGarageBody(); refreshPreview();
   });
-  async function renderGarage(){ stylePreview = {}; await refreshPreview(); renderGarageBody(); }
+  async function renderGarage(){ stylePreview = {}; markTab(); renderGoBar(); await refreshPreview(); renderGarageBody(); }
   async function refreshPreview(){
     const stl = { ...save.cars[save.current].style, ...stylePreview };
     const img = await carImage(save.current, stl);
@@ -189,21 +223,10 @@ const UI = (() => {
     el.style.filter = `drop-shadow(0 18px 22px rgba(0,0,0,.55)) drop-shadow(0 4px 30px hsla(${stl.hue},90%,55%,.4))`;
     const pcH = perfClass(save.current, save.cars[save.current]);
     document.getElementById("gCarName").innerHTML =
-      `${classBadge(pcH.cls)} ${CAR_DEFS[save.current].name} <span class="mut" style="font-size:11px">Sim ${pcH.et.toFixed(2)}s</span>`;
+      `${classBadge(pcH.cls)} ${CAR_DEFS[save.current].name} <span class="mut" style="font-size:11px">≈ ${pcH.et.toFixed(2)}s</span>`;
   }
 
-  const UPGRADES = [
-    { k:"engine", n:"Motor", d:"+15% Leistung pro Stufe", max:3, cost:[900,2600,6200] },
-    { k:"turbo",  n:"Turbolader", d:"+28% Leistung · Ladedruck", max:1, cost:[3800] },
-    { k:"tires",  n:"Slicks", d:"Traktion beim Launch", max:2, cost:[1200,3200] },
-    { k:"trans",  n:"Renngetriebe", d:"Schnellere Schaltzeiten", max:2, cost:[1500,3600] },
-    { k:"weight", n:"Leichtbau", d:"−70 kg pro Stufe", max:2, cost:[2200,4800] },
-    { k:"nos",    n:"NOS-Flasche", d:"+1.6s NOS pro Stufe (0.9s serienmässig)", max:2, cost:[1100,2400] },
-  ];
-  // ── Tuning-Ökonomie (NFS-Heat-Logik): Teile kosten relativ zum Auto-Wert —
-  // am Starter billig und SPÜRBAR, am Elite-Renner ein echtes Investment.
-  const upgMul = k => Math.min(5, Math.max(0.55, 0.55 + (CAR_DEFS[k].price || 0)/50000));
-  const upgCost = (u, lvl, k = save.current) => Math.round(u.cost[lvl] * upgMul(k) / 10) * 10;
+  // UPGRADES / upgCost / carSimET kommen aus sim.js (eine Quelle für Spiel + Test)
 
   // ── Performance-Klassen D–C–B–A–S: objektiv aus der Offline-Sim (¼-Meile).
   // Upgrades schieben das Auto in höhere Klassen → Lieblingsauto bleibt relevant.
@@ -212,10 +235,10 @@ const UI = (() => {
   function perfClass(k, cs2){
     const key = k + JSON.stringify(cs2.up) + cs2.tune.final + "|" + cs2.tune.launchRpm + "|" + cs2.tune.gears.join(",");
     if (classCache[key]) return classCache[key];
-    const et = simulateET(buildSpec(k, cs2));
-    // Bänder aus der Sim-Verteilung aller 39 Autos: Stock-Elite = B,
-    // nur voll ausgebaute Top-Autos = S, getunte Starter schaffen C–B.
-    const cls = et <= 10.6 ? "S" : et <= 11.4 ? "A" : et <= 12.4 ? "B" : et <= 14.1 ? "C" : "D";
+    // Zeit-Potenzial = erwartete ¼-Meile gut gefahren (sim.js carSimET) — dieselbe
+    // Kennzahl wie bei den Rivalen. Bänder passend zu den Ligen.
+    const et = carSimET(k, cs2);
+    const cls = et <= 9.7 ? "S" : et <= 10.5 ? "A" : et <= 11.9 ? "B" : et <= 13.7 ? "C" : "D";   // ≈ Liga 5–6 / 4 / 3 / 2 / 1
     return classCache[key] = { et, cls };
   }
   const classBadge = cls =>
@@ -276,7 +299,8 @@ const UI = (() => {
         });
         el.appendChild(banner);
       }
-      const wrap = div("card",`<h3>Fuhrpark — ${CAR_KEYS.length} Autos der Szene</h3>`);
+      const nCars = CAR_KEYS.filter(k => !CAR_DEFS[k].vault || save.cars[k].owned).length;
+      const wrap = div("card",`<h3>Fuhrpark — ${nCars} Autos der Szene</h3>`);
       for (const k of CAR_KEYS){
         const d = CAR_DEFS[k], c = save.cars[k];
         if (d.vault && !c.owned) continue;      // Vault-Legenden erscheinen erst nach Kauf
@@ -329,7 +353,7 @@ const UI = (() => {
 
     if (gTab === "up"){
       const clsNow = perfClass(save.current, cs);
-      const card = div("card",`<h3>Performance — Klasse ${classBadge(clsNow.cls)} · Sim ${clsNow.et.toFixed(2)}s</h3>`);
+      const card = div("card",`<h3>Performance — Klasse ${classBadge(clsNow.cls)} · ≈ ${clsNow.et.toFixed(2)}s</h3>`);
       const specNow = buildSpec(save.current, cs);
       // Konkrete Steigerung der NÄCHSTEN Stufe: vorher → nachher (+ Klassen-Sprung)
       const gain = u => {
@@ -337,22 +361,24 @@ const UI = (() => {
         const s2 = buildSpec(save.current, cs2);
         const c2 = perfClass(save.current, cs2);
         const clsUp = c2.cls !== clsNow.cls ? ` · ${classBadge(clsNow.cls)}→${classBadge(c2.cls)}` : "";
+        const dEt = clsNow.et - c2.et;
+        const tSave = dEt > 0.005 ? ` · <strong>−${dEt.toFixed(2)}s</strong>` : "";
         if (u.k === "engine" || u.k === "turbo"){
           const a = carPS(def, specNow.powerMul), b = carPS(def, s2.powerMul);
-          return `${a} → <b>${b} PS</b> (+${b-a})${clsUp}`;
+          return `${a} → <strong>${b} PS</strong>${tSave}${clsUp}`;
         }
-        if (u.k === "weight") return `${specNow.mass} → <b>${s2.mass} kg</b>${clsUp}`;
-        if (u.k === "trans")  return `Schaltzeit ${specNow.shiftTime.toFixed(2)} → <b>${s2.shiftTime.toFixed(2)}s</b>${clsUp}`;
-        if (u.k === "tires")  return `Traktion +${Math.round((s2.mu/specNow.mu-1)*100)}%${clsUp}`;
-        if (u.k === "nos")    return `${specNow.nosMax.toFixed(1)} → <b>${s2.nosMax.toFixed(1)}s NOS</b>${clsUp}`;
+        if (u.k === "weight") return `${specNow.mass} → <strong>${s2.mass} kg</strong>${tSave}${clsUp}`;
+        if (u.k === "trans")  return `Schaltzeit ${specNow.shiftTime.toFixed(2)} → <strong>${s2.shiftTime.toFixed(2)}s</strong>${tSave}${clsUp}`;
+        if (u.k === "tires")  return `Traktion +${Math.round((s2.mu/specNow.mu-1)*100)}%${tSave}${clsUp}`;
+        if (u.k === "nos")    return `${specNow.nosMax.toFixed(1)} → <strong>${s2.nosMax.toFixed(1)}s NOS</strong>${tSave}${clsUp}`;
         return "";
       };
       UPGRADES.forEach(u=>{
         const lv = cs.up[u.k];
-        const next = lv < u.max ? upgCost(u, lv) : null;
+        const next = lv < u.max ? upgCost(u, lv, save.current) : null;
         const row = div("row", `
           <div class="nm"><b>${u.n}</b><span>${u.d}</span>
-          ${next!=null?`<span style="color:var(--grn);font-weight:700;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${gain(u)}</span>`:""}</div>
+          ${next!=null?`<span style="color:var(--grn);font-weight:700;font-size:12px;font-variant-numeric:tabular-nums">${gain(u)}</span>`:""}</div>
           <div class="lvl">${Array.from({length:u.max},(_,i)=>`<i class="${i<lv?"on":""}"></i>`).join("")}</div>
           <button class="buy ${next==null?"owned":(save.money>=next?"can":"")}">
             ${next==null?"MAX":"$"+next.toLocaleString("de-CH")}
@@ -369,7 +395,7 @@ const UI = (() => {
       const spec = buildSpec(save.current, cs);
       const peak = Math.round(Math.max(...def.torque.map(t=>t[1])) * spec.powerMul);
       el.appendChild(div("card", `<h3>Datenblatt</h3><div class="resgrid">
-        <div><b style="color:${CLASS_COL[clsNow.cls]}">Klasse ${clsNow.cls}</b><span>Sim ¼-Meile ${clsNow.et.toFixed(2)}s</span></div>
+        <div><b style="color:${CLASS_COL[clsNow.cls]}">Klasse ${clsNow.cls}</b><span>≈ ${clsNow.et.toFixed(2)}s ¼-Meile</span></div>
         <div><b>${carPS(def, spec.powerMul)} PS</b><span>Leistung</span></div>
         <div><b>${(spec.mass/carPS(def, spec.powerMul)).toFixed(1)} kg/PS</b><span>Leistungsgewicht</span></div>
         <div><b>${peak} Nm</b><span>Drehmoment</span></div>
@@ -379,16 +405,26 @@ const UI = (() => {
         <div><b>${def.zone??530} rpm</b><span>Grüne Schaltzone</span></div>
         <div><b>+${(3700/(def.zone??530)).toFixed(1)}%</b><span>Perfect-Boost</span></div>
       </div>
-      <p class="mut" style="font-size:11.5px;padding-top:8px">Enge Schaltzone = schwerer zu treffen, aber stärkerer Boost. Gas exakt bei GRÜN = Launch-Boost bis +12%.</p>`));
+      <p class="mut" style="font-size:11.5px;padding-top:8px">≈ Zeit = erwartete ¼-Meile, sauber gefahren — dieselbe Zahl wie bei deinen Rivalen in der Karriere. Enge Schaltzone = schwerer zu treffen, aber stärkerer Boost.</p>`));
     }
 
     if (gTab === "tune"){
+      const base = perfClass(save.current, { ...cs, tune: defaultTune(def) }).et;
       const card = div("card", `<h3>Getriebe-Setup</h3>
-        <p class="mut" style="font-size:12px;margin-bottom:6px">Kürzer = mehr Punch, weniger Endspeed. Länger = Top-End.</p>`);
+        <p class="mut" style="font-size:12px;margin-bottom:6px">Kürzer = mehr Punch, weniger Endspeed. Länger = Top-End.</p>
+        <p id="tuneEt" style="font-size:13px;font-weight:800;margin-bottom:4px"></p>`);
+      const showEt = () => {
+        const now = perfClass(save.current, cs).et, d = now - base;
+        const el2 = card.querySelector("#tuneEt"); if (!el2) return;
+        el2.innerHTML = `Dein Setup: ≈ ${now.toFixed(2)}s <span style="color:${d < -0.005 ? "var(--grn)" : d > 0.005 ? "var(--red2)" : "var(--mut)"}">(${d <= 0 ? "−" : "+"}${Math.abs(d).toFixed(2)}s ggü. Werk)</span>`;
+      };
+      let etT = 0;
+      const tuned = () => { persist(); clearTimeout(etT); etT = setTimeout(()=>{ showEt(); refreshPreview(); }, 120); };
       cs.tune.gears.forEach((gv,i)=>{
-        card.appendChild(slider(`${i+1}. Gang`, gv, 0.6, 4.2, 0.01, v=>{ cs.tune.gears[i]=v; persist(); }));
+        card.appendChild(slider(`${i+1}. Gang`, gv, 0.6, 4.2, 0.01, v=>{ cs.tune.gears[i]=v; tuned(); }));
       });
-      card.appendChild(slider("Final Drive", cs.tune.final, 2.6, 5.2, 0.01, v=>{ cs.tune.final=v; persist(); }));
+      card.appendChild(slider("Final Drive", cs.tune.final, 2.6, 5.2, 0.01, v=>{ cs.tune.final=v; tuned(); }));
+      setTimeout(showEt, 0);
       el.appendChild(card);
       const c2 = div("card","<h3>Launch</h3>");
       c2.appendChild(slider("Launch-RPM", cs.tune.launchRpm, def.idle+500, def.redline, 50,
@@ -398,8 +434,8 @@ const UI = (() => {
       const r = div("card",""); const rb = document.createElement("button");
       rb.className="buy"; rb.style.width="100%"; rb.textContent="Setup zurücksetzen";
       rb.addEventListener("click", ()=>{
-        cs.tune = { gears: def.gears.slice(), final: def.final, launchRpm: Math.round(def.redline*0.5) };
-        persist(); renderGarageBody();
+        cs.tune = defaultTune(def);
+        persist(); renderGarageBody(); refreshPreview();
       });
       r.appendChild(rb); el.appendChild(r);
     }
@@ -582,88 +618,161 @@ const UI = (() => {
 
   // ── Rennen ──
   let lastRace = null;
-  function startQuick(){
-    const o = getOpponent(Math.max(0, save.tier-1 + Math.floor(Math.random()*2)));
-    startRace({ ...o, prize: Math.max(150, Math.round(o.prize*0.35)), quick:true,
-                half: Math.random() < 0.3 }, o.tier);
+  function startCareer(tier){
+    tier = Math.min(tier, save.tier);
+    startRace({ ...rivalFor(tier), mode:"career" }, tier);
   }
-  // Bet & Race: Einsatz zahlen — Sieg verdoppelt, Niederlage weg
-  function startBet(){
-    if (save.money < 100) return toast("Mindestens $100 für Bet & Race!");
-    const bet = Math.max(100, Math.min(Math.round(save.money*0.25), 10000));
-    save.money -= bet; persist(); updateCash();
-    const o = getOpponent(save.tier + (Math.random()<0.5?0:1));
-    toast(`Einsatz: $${bet.toLocaleString("de-CH")} — Sieg bringt $${(bet*2).toLocaleString("de-CH")}!`);
-    startRace({ ...o, prize: bet*2, quick:true, bet, half: Math.random() < 0.3 }, o.tier);
+  // Freies Rennen: Rivale aus der aktuellen (oder vorherigen) Liga, ⅓ Preisgeld,
+  // manchmal ½ Meile. Zählt nicht für die Karriere.
+  function startQuick(){
+    const t = Math.max(0, save.tier - Math.floor(Math.random()*4));
+    const o = rivalFor(t);
+    startRace({ ...o, mode:"quick", prize: Math.max(150, Math.round(o.prize*0.35/10)*10),
+                half: Math.random() < 0.3 }, t);
   }
   function startRace(opp, tier){
     if (!save.current) return show("starter");
     lastRace = { opp, tier };
     SCREENS.forEach(s=>{ const el=document.getElementById(s); if (el) el.classList.remove("on"); });
+    hideLevelUp();
     document.getElementById("hud").classList.add("on");
-    document.getElementById("hudVs").textContent = "VS " + opp.name;
+    document.getElementById("hud").classList.remove("duo");
+    const myEt = carSimET(save.current, save.cars[save.current]);
+    const oEt = opp.vsGhost ? carSimET(opp.car, { up: opp.up, tune: opp.tune }) : (opp.mode === "career" ? rivalEt(opp) : opp.et);
+    document.getElementById("hudVs").innerHTML = `${opp.mode === "career" ? leagueLabel(opp) + " · " : ""}VS ${opp.name}`
+      + `<small>Du ≈ ${myEt.toFixed(2)}s · ${opp.name} ≈ ${oEt.toFixed(2)}s</small>`;
     Race.start({ carKey: save.current, carState: save.cars[save.current], opp,
+      nerves: opp.mode === "career" ? (save.losses?.[tier] || 0) : 0,
+      onEvent: raceEvent,
       onDone: res => showResults(res, opp, tier) });
   }
+  function raceEvent(ev){
+    if (ev.launch) syncKnob();
+    if (ev.shift){
+      syncKnob();
+      if (ev.shift === "PERFECT"){ pShift.classList.add("flash"); setTimeout(()=>pShift.classList.remove("flash"), 300); }
+      window.NativeBridge?.haptic?.(ev.shift === "PERFECT" ? "medium" : "light");
+    }
+  }
 
-  // ── Resultate mit Animation (Geld-Count-Up, XP, Level-Up) ──
+  // Günstigstes Upgrade mit spürbarem Zeitgewinn (für den Tipp nach einer Niederlage)
+  function bestTip(){
+    const k = save.current, cs = save.cars[k];
+    const now = carSimET(k, cs); let best = null;
+    for (const u of UPGRADES){
+      const lv = cs.up[u.k]; if (lv >= u.max) continue;
+      const cost = upgCost(u, lv, k);
+      const et = carSimET(k, { ...cs, up: { ...cs.up, [u.k]: lv+1 } });
+      const gain = now - et; if (gain < 0.02) continue;
+      const sc = gain / cost * (cost <= save.money ? 3 : 1);   // bezahlbare bevorzugen
+      if (!best || sc > best.sc) best = { u, lv, cost, et, gain, sc, now };
+    }
+    return best;
+  }
+  function driveTip(res){
+    if (res.et === Infinity) return "Gas halten, sobald die Ampel GRÜN wird — dann zählt's.";
+    if (!res.launchQ && res.rt != null && res.rt > 0.3) return "Start: Gas exakt bei GRÜN geben — schnelle Reaktion = Boost.";
+    if (!res.launchQ) return "Start: Nadel vor Grün in der GRÜNEN ZONE halten = PERFECT LAUNCH.";
+    if ((res.perfects || 0) < 2) return "Schalten, wenn die Nadel im grünen Bogen steht = PERFECT +Boost.";
+    return "NOS nach dem Start drücken und halten — volle Flasche bringt am meisten.";
+  }
+
+  // ── Resultat: eine klare Haupt-Aktion, Belohnung mit Count-Up ──
+  function setResButtons(primary, secondary){
+    const box = document.getElementById("resBtns");
+    box.innerHTML = "";
+    const mk = (b, cls) => { const x = document.createElement("button"); x.className = "mbtn " + cls; x.textContent = b.label; x.onclick = b.go; return x; };
+    box.appendChild(mk(primary, "primary resmain"));
+    const row = document.createElement("div"); row.className = "resrow";
+    secondary.forEach(b => row.appendChild(mk(b, "")));
+    box.appendChild(row);
+  }
   function showResults(res, opp, tier){
     document.getElementById("hud").classList.remove("on");
     const cs = save.cars[save.current];
-    // Rematch gegen schon besiegte Karriere-Gegner: nur ⅓ Geld + XP —
-    // Farmen alter Tiers lohnt kaum, der volle Preis wartet beim NÄCHSTEN Gegner.
-    const rematch = !opp.quick && !opp.vsGhost && !opp.bet && tier < save.tier;
-    let cash = 0, xp = 0;
-    if (res.win){
-      cash = opp.prize;
-      xp = 40 + (opp.tier ?? tier)*12 + (res.perfects ? 15 : 0);
-      if (rematch){ cash = Math.round(cash/3); xp = Math.round(xp/3); }
-      if (!opp.quick && !opp.vsGhost && tier === save.tier) save.tier++;
-    } else { xp = rematch ? 4 : 12; }
+    save.losses ??= {};
+    const career = opp.mode === "career";
+    const rematch = career && tier < save.tier;
+    let { cash, xp } = raceReward({ win: res.win, opp, rematch, perfects: res.perfects });
+    if (opp.vsGhost){ cash = 0; xp = res.win ? 35 : 12; }
+    if (!res.win && res.et === Infinity){ cash = 0; xp = 5; }      // nicht im Ziel: kein Startgeld (kein AFK-Farmen)
+    const wasTier = save.tier;
+    if (career && res.win && tier === save.tier){ save.tier++; delete save.losses[tier]; }
+    if (career && !res.win && tier === save.tier) save.losses[tier] = (save.losses[tier] || 0) + 1;
     save.money += cash;
     if (res.et !== Infinity && (cs.bestEt==null || res.et < cs.bestEt)) cs.bestEt = res.et;
-
-    // Level-Up prüfen
-    save.xp += xp;
-    const unlocked = [];
-    let leveled = false;
-    while (save.xp >= xpNeed(save.level)){
-      save.xp -= xpNeed(save.level); save.level++; leveled = true;
-      CAR_KEYS.forEach(k=>{ if (CAR_DEFS[k].unlock === save.level) unlocked.push(CAR_DEFS[k].name); });
-    }
+    const lu = addXp(xp);
     persist();
 
-    document.getElementById("resTitle").textContent = res.win ? "SIEG!" : "VERLOREN";
+    const bossDown = career && res.win && opp.boss && wasTier === tier;
+    document.getElementById("resTitle").textContent = res.win ? (bossDown ? "BOSS BESIEGT!" : "SIEG!") : "VERLOREN";
     document.getElementById("resTitle").className = "big " + (res.win?"win":"lose");
-    document.getElementById("resSub").textContent = res.win
-      ? `VS ${opp.name} geschlagen${opp.bet ? ` · Einsatz verdoppelt!` : ""}${res.perfects ? " · PERFECT-Bonus!" : ""}${rematch ? " · Rematch: ⅓ Belohnung" : ""}`
-      : `VS ${opp.name} — ${opp.bet ? `$${opp.bet.toLocaleString("de-CH")} Einsatz futsch!` : "tune nach, hol dir den Sieg!"}`;
+    document.getElementById("resSub").textContent = (career ? leagueLabel(opp) + " · " : opp.mode === "quick" ? "Freies Rennen · " : "")
+      + `VS ${opp.name}` + (res.win ? (rematch ? " · Rematch ⅓" : "") : "");
     document.getElementById("resGrid").innerHTML = `
-      <div><b id="cEt">0.000s</b><span>Deine ¼-Meile</span></div>
+      <div><b id="cEt">0.000s</b><span>Deine Zeit</span></div>
       <div><b>${res.oppEt==null?"—":res.oppEt.toFixed(3)+"s"}</b><span>${opp.name}</span></div>
       <div><b>${Math.round(res.trap)} km/h</b><span>Trap Speed</span></div>
       <div><b>${res.rt==null?"—":res.rt.toFixed(3)+"s"}</b><span>Reaktion</span></div>
-      <div><b id="cCash" style="color:var(--grn)">$0</b><span>Preisgeld</span></div>
+      <div><b id="cCash" style="color:var(--grn)">$0</b><span>${res.win ? "Preisgeld" : "Startgeld"}</span></div>
       <div><b id="cXp" style="color:#6EA8FF">+0 XP</b><span>Erfahrung</span></div>`;
-    // XP-Bar
-    document.getElementById("resXp").innerHTML = `<span>LEVEL ${save.level}</span><i><b id="xpFill" style="width:0%"></b></i><span>${save.xp}/${xpNeed(save.level)}</span>`;
+    document.getElementById("resXp").innerHTML = `<span>LV ${save.level}</span><i><b id="xpFill" style="width:0%"></b></i><span>${save.xp}/${xpNeed(save.level)}</span>`;
+
+    // Tipp nach Niederlage: konkretes Upgrade (direkt kaufbar) + Fahr-Tipp
+    const tipEl = document.getElementById("resTip");
+    tipEl.innerHTML = ""; tipEl.style.display = "none";
+    if (!res.win && !opp.vsGhost){
+      const t = bestTip();
+      const rEt = career ? rivalEt(opp) : opp.et;
+      let html = `<p class="dt">💡 ${driveTip(res)}</p>`;
+      if (t){
+        const beats = t.et < rEt;
+        html += `<div class="tiprow"><div class="nm"><b>${t.u.n}${t.u.max > 1 ? " Stufe " + (t.lv+1) : ""}</b>
+          <span>≈ ${t.now.toFixed(2)} → <b style="color:var(--grn)">${t.et.toFixed(2)}s</b>${beats ? " · schneller als " + opp.name : ""}</span></div>
+          <button class="buy ${save.money >= t.cost ? "can" : ""}" id="tipBuy">${save.money >= t.cost ? "Kaufen $" + t.cost.toLocaleString("de-CH") : "Noch $" + (t.cost - save.money).toLocaleString("de-CH")}</button></div>`;
+      }
+      tipEl.innerHTML = html; tipEl.style.display = "";
+      const tb = document.getElementById("tipBuy");
+      if (tb && t) tb.onclick = () => {
+        if (save.money < t.cost){ toast("Noch nicht genug Cash — ein Rennen mehr!"); return; }
+        save.money -= t.cost; cs.up[t.u.k]++; persist(); updateCash();
+        AudioSys.beep(760,.12,.3);
+        tb.textContent = "Eingebaut ✓"; tb.classList.remove("can"); tb.classList.add("owned"); tb.onclick = null;
+        toast(`${t.u.n} eingebaut — jetzt ≈ ${carSimET(save.current, cs).toFixed(2)}s`);
+      };
+    }
     show("results");
 
-    // Count-Up-Animationen
-    countUp("cEt", res.et===Infinity?0:res.et, v=>v.toFixed(3)+"s", 900);
+    if (res.et === Infinity) document.getElementById("cEt").textContent = "—";
+    else countUp("cEt", res.et, v=>v.toFixed(3)+"s", 900);
     countUp("cCash", cash, v=>"$"+Math.round(v).toLocaleString("de-CH"), 1100);
     countUp("cXp", xp, v=>"+"+Math.round(v)+" XP", 1100);
     setTimeout(()=>{ const f=document.getElementById("xpFill"); if (f) f.style.width = Math.round(100*save.xp/xpNeed(save.level))+"%"; }, 350);
+    if (lu.leveled) setTimeout(()=>levelUp(lu.unlocked), 1300);
 
-    if (leveled) setTimeout(()=>levelUp(unlocked), 1400);
-
-    // «Nächster ▶» — nach Karriere-Sieg direkt zum nächsten Gegner
-    const nextBtn = document.getElementById("btnNext");
-    const showNext = res.win && !opp.quick && !opp.vsGhost && !opp.bet;
-    nextBtn.style.display = showNext ? "" : "none";
-    document.getElementById("btnAgain").classList.toggle("primary", !showNext);
-    document.getElementById("btnAgain").style.display = "";
-    document.getElementById("btnLobby").style.display = "none";
+    const menuB = { label:"Menü", go:()=>show("menu") };
+    const garB  = { label:"Garage", go:()=>{ gTab = "up"; markTab(); show("garage"); } };
+    if (career && res.win){
+      const nx = rivalFor(save.tier);
+      setResButtons({ label: bossDown ? (nx.league >= LEAGUES.length ? "Endlos-Liga ▶" : `Liga ${nx.league+1} starten ▶`) : `Nächstes Rennen ▶ ${nx.name}`,
+                      go:()=>startCareer(save.tier) }, [garB, menuB]);
+    } else if (career){
+      setResButtons({ label:"↺ Nochmal", go:()=>startCareer(tier) }, [garB, menuB]);
+    } else if (opp.vsGhost){
+      setResButtons({ label:"↺ Nochmal", go:()=>startRace(opp, tier) }, [garB, menuB]);
+    } else {
+      setResButtons({ label:"Neues Rennen ▶", go:()=>startQuick() },
+                    [{ label:"Karriere", go:()=>show("career") }, garB]);
+    }
+  }
+  function addXp(xp){
+    save.xp += xp;
+    const unlocked = []; let leveled = false;
+    while (save.xp >= xpNeed(save.level)){
+      save.xp -= xpNeed(save.level); save.level++; leveled = true;
+      CAR_KEYS.forEach(k=>{ if (!CAR_DEFS[k].vault && CAR_DEFS[k].unlock === save.level) unlocked.push(CAR_DEFS[k].name); });
+    }
+    return { leveled, unlocked };
   }
   function countUp(id, end, fmt, dur){
     const el = document.getElementById(id); if (!el) return;
@@ -675,32 +784,42 @@ const UI = (() => {
     };
     requestAnimationFrame(step);
   }
+  // Level-up: kurzer Toast OBEN (unter der Statusleiste), antippbar zum Schliessen,
+  // blockiert nichts — verschwindet nach 2.6 s oder beim Screen-Wechsel.
+  let luT = 0;
   function levelUp(unlocked){
     const el = document.getElementById("lvlup");
     document.getElementById("lvlupNum").textContent = save.level;
     document.getElementById("lvlupUnlocks").innerHTML = unlocked.length
-      ? "Freigeschaltet: " + unlocked.map(n=>`<b>${n}</b>`).join(", ")
-      : "Weiter so — nächstes Auto wartet!";
+      ? "Neu: " + unlocked.map(n=>`<b>${n}</b>`).join(", ")
+      : "Weiter so — mehr Autos warten!";
     el.classList.add("on");
     AudioSys.winJingle();
-    setTimeout(()=>el.classList.remove("on"), 2600);
+    window.NativeBridge?.haptic?.("medium");
+    clearTimeout(luT); luT = setTimeout(hideLevelUp, 2600);
   }
+  function hideLevelUp(){ clearTimeout(luT); document.getElementById("lvlup")?.classList.remove("on"); }
+  document.getElementById("lvlup").addEventListener("click", hideLevelUp);
   function toast(msg){
     const t = document.getElementById("toast");
     t.textContent = msg; t.classList.add("on");
-    setTimeout(()=>t.classList.remove("on"), 2400);
+    clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove("on"), 2400);
   }
+  function markTab(){ document.querySelectorAll("#gTabs button").forEach(x=>x.classList.toggle("on", x.dataset.t===gTab)); }
 
-  document.getElementById("btnAgain").addEventListener("click", ()=>{ if (lastRace) startRace(lastRace.opp, lastRace.tier); });
-  document.getElementById("btnNext").addEventListener("click", ()=>{
-    const o = getOpponent(save.tier);
-    o.half = (save.tier+1) % 5 === 0;
-    startRace(o, save.tier);
-  });
   document.getElementById("restartRace").addEventListener("click", ()=>{
-    if (lastRace){ Race.stop(); startRace(lastRace.opp, lastRace.tier); }
+    if (lastRace && !Duo.racing){ Race.stop(); startRace(lastRace.opp, lastRace.tier); }
   });
-  document.getElementById("leaveRace").addEventListener("click", ()=>{ Race.stop(); show("menu"); });
+  document.getElementById("leaveRace").addEventListener("click", ()=>{
+    if (Duo.racing) return Duo.abort();
+    Race.stop(); show(lastRace?.opp?.mode === "career" ? "career" : "menu");
+  });
+  // Garage → direkt zum nächsten Karriere-Rennen
+  document.getElementById("gRace").addEventListener("click", ()=>startCareer(save.tier));
+  function renderGoBar(){
+    const o = rivalFor(save.tier);
+    document.getElementById("gRace").innerHTML = `▶ Zum Rennen <small>${leagueLabel(o)} · VS ${o.name}</small>`;
+  }
 
   // ── Race-Inputs ──
   function bindHold(el, on, off){
@@ -717,13 +836,9 @@ const UI = (() => {
   const pShift = document.getElementById("pShift");
   function syncKnob(){ pShift.dataset.gear = String(Math.min(6, Race.gear() + 1)); }
   function resetKnob(){ pShift.dataset.gear = "0"; }
-  function uiShift(){
-    const q = Race.shift();
-    if (q){                                   // Knauf wandert sichtbar in den nächsten Slot
-      syncKnob();
-      if (q === "PERFECT"){ pShift.classList.add("flash"); setTimeout(()=>pShift.classList.remove("flash"), 300); }
-    }
-  }
+  // Schalten wird im nächsten Physik-Tick ausgeführt; Knauf + PERFECT-Blitz kommen
+  // als Ereignis zurück (raceEvent) — so bleibt der Lauf deterministisch (Duo).
+  function uiShift(){ Race.shift(); }
   pShift.addEventListener("touchstart", e=>{ e.preventDefault(); uiShift(); }, {passive:false});
   pShift.addEventListener("mousedown", e=>{ e.preventDefault(); uiShift(); });
   const pNos = document.getElementById("pNos");
@@ -736,7 +851,7 @@ const UI = (() => {
     if (e.code==="ArrowUp"||e.code==="Space"){ e.preventDefault(); Race.input.gas=true; pGas.classList.add("hot"); AudioSys.unlock(); }
     if (e.code==="ShiftLeft"||e.code==="ShiftRight"||e.code==="Enter"||e.code==="ArrowRight"){ e.preventDefault(); uiShift(); }
     if (e.code==="KeyN"||e.code==="ArrowDown"){ Race.nos(true); pNos.classList.add("hot"); }
-    if (e.code==="Escape"){ Race.stop(); show("menu"); }
+    if (e.code==="Escape"){ if (Duo.racing) Duo.abort(); else { Race.stop(); show("menu"); } }
   });
   window.addEventListener("keyup", e=>{
     if (e.code==="ArrowUp"||e.code==="Space"){ Race.input.gas=false; pGas.classList.remove("hot"); }
@@ -858,50 +973,48 @@ const UI = (() => {
     if (document.getElementById("vault").classList.contains("on")) renderVault();
   }
 
-  // ── Live-Duell-Ergebnis (Geld ist in live.js schon verrechnet) ──
-  function showLiveResults(res, rivalName, bet){
+  // ── iPhone-Duo-Ergebnis (beide Seiten rechnen dasselbe: Replay beider Läufe) ──
+  function showDuoResults(r){
     document.getElementById("hud").classList.remove("on");
-    const xp = res.win ? 35 : 12;
-    save.xp += xp;
-    const unlocked = []; let leveled = false;
-    while (save.xp >= xpNeed(save.level)){
-      save.xp -= xpNeed(save.level); save.level++; leveled = true;
-      CAR_KEYS.forEach(k=>{ if (CAR_DEFS[k].unlock === save.level) unlocked.push(CAR_DEFS[k].name); });
-    }
+    const xp = r.status === "win" || r.status === "forfeit" ? 40 : r.status === "lose" ? 15 : 0;
     const cs = save.cars[save.current];
-    if (res.et !== Infinity && (cs.bestEt==null || res.et < cs.bestEt)) cs.bestEt = res.et;
+    if (r.myEt != null && (cs.bestEt==null || r.myEt < cs.bestEt)) cs.bestEt = r.myEt;
+    const lu = addXp(xp);
     persist();
-    document.getElementById("resTitle").textContent = res.win ? "SIEG!" : "VERLOREN";
-    document.getElementById("resTitle").className = "big " + (res.win?"win":"lose");
-    document.getElementById("resSub").textContent = res.win
-      ? `LIVE VS ${rivalName} geschlagen${bet>0 ? ` · $${bet.toLocaleString("de-CH")} kassiert!` : " · Ehre verteidigt!"}`
-      : `LIVE VS ${rivalName}${bet>0 ? ` · $${bet.toLocaleString("de-CH")} verloren` : " — Revanche in der Lobby!"}`;
+    const T = { win:["SIEG!","win"], lose:["VERLOREN","lose"], draw:["UNENTSCHIEDEN","win"],
+      forfeit:["SIEG!","win"], aborted:["ABGEBROCHEN","lose"], lost:["VERBINDUNG WEG","lose"] }[r.status];
+    document.getElementById("resTitle").textContent = T[0];
+    document.getElementById("resTitle").className = "big " + T[1];
+    const sub = { win:`iPhone Duo · ${r.rivalName} geschlagen`, lose:`iPhone Duo · ${r.rivalName} war schneller`,
+      draw:"iPhone Duo · auf die Tausendstel gleich!", forfeit:`${r.rivalName} hat aufgegeben`,
+      aborted:"Du hast das Rennen abgebrochen", lost:`Verbindung zu ${r.rivalName} verloren — Rennen nicht gewertet` }[r.status];
+    document.getElementById("resSub").textContent = sub;
+    const f = v => v == null ? "—" : v.toFixed(3)+"s";
     document.getElementById("resGrid").innerHTML = `
-      <div><b>${res.et===Infinity?"—":res.et.toFixed(3)+"s"}</b><span>Deine Zeit</span></div>
-      <div><b>${res.oppEt==null?"—":res.oppEt.toFixed(3)+"s"}</b><span>${rivalName}</span></div>
-      <div><b>${Math.round(res.trap)} km/h</b><span>Trap Speed</span></div>
-      <div><b>${res.rt==null?"—":res.rt.toFixed(3)+"s"}</b><span>Reaktion</span></div>
-      <div><b style="color:${res.win?"var(--grn)":"var(--red)"}">${bet>0 ? (res.win?"+$":"−$")+bet.toLocaleString("de-CH") : "Fun-Race"}</b><span>Einsatz</span></div>
+      <div><b>${f(r.myEt)}</b><span>Deine Zeit</span></div>
+      <div><b>${f(r.rivalEt)}</b><span>${r.rivalName}</span></div>
+      <div><b>${r.trap ? Math.round(r.trap)+" km/h" : "—"}</b><span>Trap Speed</span></div>
+      <div><b>${f(r.rt)}</b><span>Reaktion</span></div>
+      <div><b>${r.myEt != null && r.rivalEt != null ? (r.myEt < r.rivalEt ? "−" : "+") + Math.abs(r.myEt - r.rivalEt).toFixed(3)+"s" : "—"}</b><span>Abstand</span></div>
       <div><b style="color:#6EA8FF">+${xp} XP</b><span>Erfahrung</span></div>`;
-    document.getElementById("resXp").innerHTML = `<span>LEVEL ${save.level}</span><i><b id="xpFill" style="width:${Math.round(100*save.xp/xpNeed(save.level))}%"></b></i><span>${save.xp}/${xpNeed(save.level)}</span>`;
-    document.getElementById("btnNext").style.display = "none";
-    document.getElementById("btnAgain").style.display = "none";
-    document.getElementById("btnLobby").style.display = "";
+    document.getElementById("resXp").innerHTML = `<span>LV ${save.level}</span><i><b id="xpFill" style="width:${Math.round(100*save.xp/xpNeed(save.level))}%"></b></i><span>${save.xp}/${xpNeed(save.level)}</span>`;
+    const tipEl = document.getElementById("resTip"); tipEl.innerHTML = ""; tipEl.style.display = "none";
+    if (r.connected) setResButtons({ label:"↺ Revanche", go:()=>Duo.rematch() },
+      [{ label:"Auto wechseln", go:()=>Duo.backToLobby() }, { label:"Raum verlassen", go:()=>Duo.leave() }]);
+    else setResButtons({ label:"Neuen Raum öffnen", go:()=>{ Duo.leave(true); Duo.open(); } },
+      [{ label:"Menü", go:()=>Duo.leave() }]);
     show("results");
     updateCash();
-    if (leveled) setTimeout(()=>levelUp(unlocked), 1200);
+    if (lu.leveled) setTimeout(()=>levelUp(lu.unlocked), 1200);
   }
-  document.getElementById("btnLobby").addEventListener("click", ()=>{
-    document.getElementById("btnLobby").style.display = "none";
-    document.getElementById("btnAgain").style.display = "";
-    Live.backToLobby();
-  });
 
   // ── Boot ──
   (async ()=>{
     window.Cloud?.init?.();
-    const duel = new URLSearchParams(location.search).get("duel");
-    if (duel){ window.DUEL_CODE = duel.toUpperCase(); history.replaceState(null,"",location.pathname); }
+    // iPhone Duo per QR/Link: ?duo=12345 (alte Live-Links ?duel=… landen auch hier)
+    const qs = new URLSearchParams(location.search);
+    const duo = qs.get("duo") || qs.get("duel");
+    if (duo){ window.DUEL_CODE = duo.toUpperCase().replace(/[^A-Z0-9]/g,""); history.replaceState(null,"",location.pathname); }
     if (new URLSearchParams(location.search).get("vault") === "success"){
       history.replaceState(null,"",location.pathname);
       toast("✨ Danke! Dein VAULT-Auto wird freigeschaltet…");
@@ -909,7 +1022,7 @@ const UI = (() => {
     }
     if (await checkVSLink()) return;
     if (!save.current){ await renderStarter(); show("starter"); }
-    else if (window.DUEL_CODE) Live.openLobby(window.DUEL_CODE);
+    else if (window.DUEL_CODE){ const c = window.DUEL_CODE; window.DUEL_CODE = null; show("menu"); Duo.open(c); }
     else show("menu");
   })();
 
@@ -923,6 +1036,7 @@ const UI = (() => {
       window.NativeBridge.haptic(strong ? "medium" : "light");
     }, true);
   }
-  return { save, show, persist, toast, applyCloud, showLiveResults, shareVS, unlockVault,
+  return { save, show, persist, toast, applyCloud, showDuoResults, shareVS, unlockVault, startCareer, raceEvent,
+    carImage: (k, st) => carImage(k, st), hideLevelUp,
     currentExhaust: ()=> save.cars[save.current]?.style.exhaust ?? 0 };
 })();
