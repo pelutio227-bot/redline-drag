@@ -156,7 +156,7 @@ const UI = (() => {
   const DRIVER = id => DRIVERS.find(d => d.id === id);
 
   // ── Screens ──
-  const SCREENS = ["menu","radar","garage","results","starter","vschall","duo","vault"];
+  const SCREENS = ["menu","radar","garage","results","starter","vschall","duo","vault","rivals"];
   function show(id){
     SCREENS.forEach(s => { const el = $(s); if (el) el.classList.toggle("on", s === id); });
     $("hud").classList.remove("on");
@@ -168,13 +168,14 @@ const UI = (() => {
     updateCash();
   }
   function updateCash(){
-    ["cash1","cash2","cash3","cash4"].forEach(id => { const el = $(id); if (el) el.textContent = save.money.toLocaleString("de-CH"); });
+    ["cash1","cash2","cash3","cash4","cash4b"].forEach(id => { const el = $(id); if (el) el.textContent = save.money.toLocaleString("de-CH"); });
   }
   document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => {
     AudioSys.unlock();
     const go = b.dataset.go;
     if (go === "quick") return startTest();
-    if (go === "duo") return Duo.open();
+    if (go === "duo") return needName(() => Duo.open());
+    if (go === "rivals") return needName(() => Rivals.open());
     if (go === "radar") return openRadar();
     show(go);
   }));
@@ -216,11 +217,83 @@ const UI = (() => {
       c.addEventListener("click", () => {
         save.cars[k].owned = true; save.current = k; save.restLv = Math.max(save.restLv, 0.3); persist();
         AudioSys.unlock(); AudioSys.levelUp();
-        if (window.DUEL_CODE){ const dc = window.DUEL_CODE; window.DUEL_CODE = null; Duo.open(dc); return; }
-        show("menu");
+        needName(() => {
+          if (window.DUEL_CODE){ const dc = window.DUEL_CODE; window.DUEL_CODE = null; routeCode(dc); return; }
+          show("menu");
+        });
       });
       el.appendChild(c);
     }
+  }
+
+  // ══ Fahrername (Pflicht für Rivalen/Duell/Freunde) ═══════════════════════════
+  const hasName = () => save.name && save.name !== "RACER" && save.name.trim().length >= 3;
+  function needName(then){ if (hasName()) return then?.(); askName(then); }
+  function askName(then){
+    $("nameDlg")?.remove();
+    const d = document.createElement("div");
+    d.id = "nameDlg"; d.className = "rv-pop";
+    d.innerHTML = `<div class="rv-pop-in"><b class="rv-pop-t">Wie heisst du auf der Strasse?</b>
+      <p>Dein Fahrername — so sehen dich Rivalen, Freunde und spätere Besitzer deiner Autos.</p>
+      <input class="codein" id="nameIn" maxlength="16" autocomplete="off" autocapitalize="characters" placeholder="NAME" value="${hasName() ? esc(save.name) : ""}">
+      <p class="mut" id="nameErr" style="font-size:12px;min-height:16px"></p>
+      <div class="rv-pop-btns"><button class="mbtn primary" id="nameOk">Los geht's</button></div></div>`;
+    document.body.appendChild(d);
+    const inp = $("nameIn");
+    setTimeout(() => inp.focus(), 80);
+    const ok = () => {
+      const v = inp.value.trim().replace(/\s+/g, " ").toUpperCase();
+      if (!/^[A-Z0-9ÄÖÜÉÈÀÇ _.\-]{3,16}$/.test(v) || v === "RACER") { $("nameErr").textContent = "3–16 Zeichen: Buchstaben, Zahlen, Leerzeichen, - _ ."; return; }
+      save.name = v; persist(); d.remove();
+      window.Rivals?.nameChanged?.();
+      then?.();
+    };
+    $("nameOk").onclick = ok;
+    inp.onkeydown = e => { if (e.key === "Enter") ok(); };
+  }
+  // Codes aus Links: 5 Ziffern = Duell-Raum, F + 6 Zeichen = Freundes-Code
+  function routeCode(c){
+    c = String(c || "").toUpperCase();
+    if (/^F[A-Z0-9]{6}$/.test(c)) return needName(() => { show("menu"); Rivals.open("friends"); Rivals.addFriend(c.slice(1)); });
+    needName(() => Duo.open(c));
+  }
+
+  // ══ Rivalen-Abrechnung (Server hat entschieden) ═══════════════════════════════
+  // Cash: Sieger +Einsatz, Verlierer −Einsatz. Hardcore: Verlierer verliert das Auto, Sieger bekommt es mit
+  // Level/Teilen/Talenten/Style + Besitzer-Chronik (owners: frühere Besitzer, ältester zuerst).
+  function applyWager(w){
+    const opp = esc(w.oppName ?? "Gegner"), res = { match: w.match };
+    if (w.status === "void"){ res.text = `Rennen gegen ${w.oppName} nicht gewertet`; res.html = `⚪ Rennen gegen <b>${opp}</b> wurde <b>nicht gewertet</b> — nichts verloren.`; return res; }
+    if (w.mode === "cash"){
+      if (w.won){ save.money += w.stake; res.html = `<b>+${fmt$(w.stake)}</b> von ${opp}`; }
+      else { save.money = Math.max(0, save.money - w.stake); res.html = `<b>−${fmt$(w.stake)}</b> an ${opp}`; }
+      res.text = res.html.replace(/<[^>]+>/g, "");
+      updateCash(); persist(); return res;
+    }
+    // HARDCORE
+    if (w.won){
+      const k = w.oppCar, st = w.oppState || {}, c = save.cars[k];
+      if (!c || !CAR_DEFS[k]){ res.html = "Unbekanntes Auto"; res.text = res.html; return res; }
+      const owners = [...(st.owners || []), { pid: w.oppPid, name: w.oppName, at: Date.now() }].slice(-20);
+      const take = () => Object.assign(c, { owned: true, lvl: st.lvl ?? 1, xp: st.xp ?? 0, up: st.up ?? c.up, tune: st.tune ?? c.tune,
+        style: st.style ?? c.style, tal: st.tal ?? {}, owners, wins: 0, bestEt: null });
+      if (!c.owned){ take(); res.html = `Du hast <b>${esc(CAR_DEFS[k].name)} (LV ${c.lvl})</b> von ${opp} gewonnen!`; }
+      else if ((st.lvl ?? 1) > (c.lvl ?? 1)){ take(); res.html = `Dein <b>${esc(CAR_DEFS[k].name)}</b> ist jetzt das von ${opp} — <b>LV ${c.lvl}</b>!`; }
+      else { const comp = 2500 * (st.lvl ?? 1); save.money += comp; res.html = `${esc(CAR_DEFS[k].name)} hattest du schon stärker — <b>+${fmt$(comp)}</b> für die Teile`; }
+    } else if (w.lost){
+      const k = w.car, c = save.cars[k];
+      if (c?.owned && !c.iap && !CAR_DEFS[k].vault){
+        save.cars[k] = defaultCarState(k);
+        if (save.current === k){
+          const rest = CAR_KEYS.filter(x => save.cars[x].owned).sort((a, b) => save.cars[b].lvl - save.cars[a].lvl);
+          save.current = rest[0] ?? null;
+          if (!save.current){ save.current = "hikari"; save.cars.hikari.owned = true; }   // nie ohne Auto
+        }
+      }
+      res.html = `Dein <b>${esc(CAR_DEFS[k]?.name ?? k)}</b> gehört jetzt <b>${opp}</b>.`;
+    }
+    res.text = res.html.replace(/<[^>]+>/g, "");
+    updateCash(); persist(); return res;
   }
 
   // ══ Strassen-Radar ══════════════════════════════════════════════════════════
@@ -849,6 +922,8 @@ const UI = (() => {
   // ── Setup (Getriebe/Launch) ──
   function tabTune(el){
     const k = save.current, c = cur(), def = CAR_DEFS[k];
+    const tb = div("card", `<button class="mbtn" style="width:100%">▶ Testfahrt — Setup ausprobieren <small>ohne Belohnung</small></button>`);
+    tb.querySelector("button").onclick = startTest; el.appendChild(tb);
     const base = carSimET(k, { ...c, tune: defaultTune(def) });
     const card = div("card", `<h3>Getriebe-Setup</h3><p class="mut" style="font-size:12px;margin-bottom:6px">Kürzer = mehr Punch, weniger Endspeed. Länger = Top-End.</p><p id="tuneEt" style="font-size:13px;font-weight:800;margin-bottom:4px"></p>`);
     const showEt = () => { const now = carSimET(k, c), d = now - base, e2 = card.querySelector("#tuneEt"); if (!e2) return;
@@ -869,7 +944,19 @@ const UI = (() => {
   }
 
   // ── Sammlung (Pokédex-Prinzip): alle Autos nach Seltenheit ──
+  function ownersCard(k){
+    const c = save.cars[k], o = c.owners || [];
+    const me = window.Rivals?.myPid?.();
+    const row = (x, i) => `<div class="rv-friend"><i class="dot"></i><div><b>${esc(x.name)}</b><small>${i === 0 ? "Erstbesitzer" : i + 1 + ". Besitzer"} · bis ${new Date(x.at).toLocaleDateString("de-CH")}</small></div>
+      ${x.pid && x.pid !== me && !window.Rivals?.isFriend?.(x.pid) ? `<button class="mbtn sm" data-fr="${esc(x.pid)}" data-n="${esc(x.name)}">+ Freund</button>` : ""}</div>`;
+    const d = div("card", `<h3>🧾 Fahrzeug-Chronik · ${esc(CAR_DEFS[k].name)}</h3>
+      ${o.length ? o.map(row).join("") + `<div class="rv-friend"><i class="dot on"></i><div><b>${esc(save.name)} (Du)</b><small>${o.length + 1}. Besitzer · gewonnen im Hardcore-Rennen</small></div></div>`
+        : `<p class="mut" style="font-size:12px">Erstbesitzer: <b>${esc(hasName() ? save.name : "Du")}</b>. Verlierst du es im Hardcore-Modus, bleibt dein Name für immer in der Chronik.</p>`}`);
+    d.querySelectorAll("[data-fr]").forEach(b => b.onclick = () => window.Rivals.addFriendPid(b.dataset.fr, b.dataset.n).then(() => renderGarageBody()));
+    return d;
+  }
   function tabCars(el){
+    el.appendChild(ownersCard(save.current));
     const total = CAR_KEYS.filter(k => !CAR_DEFS[k].vault).length, have = CAR_KEYS.filter(k => save.cars[k].owned && !CAR_DEFS[k].vault).length;
     el.appendChild(div("card", `<h3>Sammlung · ${have} / ${total}</h3><p class="mut" style="font-size:12px">Neue Autos gibt's nur als Beute: besiege <b style="color:var(--r-blue)">seltene</b>, <b style="color:var(--r-epic)">epische</b> oder <b style="color:var(--r-legend)">legendäre</b> Gegner und ihr Auto gehört dir — auf Level 1.</p>`));
     for (const rar of [...RARITIES].reverse()){
@@ -1099,9 +1186,32 @@ const UI = (() => {
       <div><b>${r.trap ? Math.round(r.trap) + " km/h" : "—"}</b><span>Trap Speed</span></div><div><b>${f(r.rt)}</b><span>Reaktion</span></div>
       <div style="grid-column:span 2"><b>${r.myEt != null && r.rivalEt != null ? (r.myEt < r.rivalEt ? "−" : "+") + Math.abs(r.myEt - r.rivalEt).toFixed(3) + "s" : "—"}</b><span>Abstand</span></div>`;
     $("resTip").style.display = "none";
+    if (r.wager) return duoWagerResults(r);
     if (r.connected) setResButtons({ label: "↺ Revanche", go: () => Duo.rematch() },
       [{ label: "Auto wechseln", go: () => Duo.backToLobby() }, { label: "Raum verlassen", go: () => Duo.leave() }]);
     else setResButtons({ label: "Neuen Raum öffnen", go: () => { Duo.leave(true); Duo.open(); } }, [{ label: "Menü", go: () => Duo.leave() }]);
+    show("results");
+  }
+
+  function duoWagerResults(r){
+    const w = r.wager, k = save.current, won = r.status === "win" || r.status === "forfeit";
+    $("resSub").textContent = (w.mode === "hardcore" ? "☠ HARDCORE · " : w.stake ? `Einsatz ${fmt$(w.stake)} · ` : "Rivalen · ") + $("resSub").textContent.replace(/^Duell · /, "");
+    const L = [];
+    if (r.status !== "aborted"){
+      const g = giveXp(k, Rivals.xpFor(won)); persist();
+      L.push(`<div class="loot"><i>✦</i><div>+${g.total} XP${g.bonus ? ` <small>davon +${g.bonus} ausgeruht</small>` : ""}</div></div>`);
+      if (g.gained.length) setTimeout(() => levelUp(k, g.gained), 1400);
+    }
+    L.push(`<div class="loot ${w.mode === "hardcore" ? "hcl" : ""}" id="resWager"><i>⏳</i><div>Abrechnung läuft… <small>der Server prüft beide Zeiten</small></div></div>`);
+    $("resLoot").innerHTML = L.join("");
+    Rivals.settleAfterRace(w.mid, res => {
+      const el = $("resWager"); if (!el) return;
+      el.innerHTML = res ? `<i>${w.mode === "hardcore" ? "☠" : "💵"}</i><div>${res.html}</div>` : `<i>⏳</i><div>Noch keine Entscheidung — wird beim nächsten Start abgerechnet.</div>`;
+      if (res) window.NativeBridge?.haptic?.(won ? "heavy" : "medium");
+    });
+    const again = w.friend ? { label: "↺ Nochmal fahren", go: () => { Duo.leave(true); show("menu"); Rivals.challenge(w.oppPid); } }
+      : { label: "📡 Neue Rivalen", go: () => { Duo.leave(true); Rivals.open("near"); } };
+    setResButtons(again, [{ label: "Menü", go: () => Duo.leave() }]);
     show("results");
   }
 
@@ -1130,7 +1240,7 @@ const UI = (() => {
     if (!code) return;
     if (Race.active() && !Duo.racing) Race.stop();
     if (!save.current){ window.DUEL_CODE = code; return; }
-    show("menu"); Duo.open(code);
+    show("menu"); routeCode(code);
   };
 
   // ── Boot ──
@@ -1148,8 +1258,8 @@ const UI = (() => {
     }
     if (await checkVSLink()) return;
     if (!save.current) show("starter");
-    else if (window.DUEL_CODE){ const c = window.DUEL_CODE; window.DUEL_CODE = null; show("menu"); Duo.open(c); }
-    else show("menu");
+    else if (window.DUEL_CODE){ const c = window.DUEL_CODE; window.DUEL_CODE = null; show("menu"); routeCode(c); }
+    else { show("menu"); if (!hasName()) setTimeout(() => needName(), 600); }
   })();
 
   setTimeout(() => { Shop.load(); }, 400);
@@ -1159,7 +1269,7 @@ const UI = (() => {
       window.NativeBridge.haptic(t.matches(".mbtn.primary, .vaultbuy, .go") ? "medium" : "light");
     }, true);
   }
-  return { save, show, persist, toast, applyCloud, showDuoResults, shareVS, unlockVault, raceEvent,
+  return { save, show, persist, toast, applyCloud, showDuoResults, applyWager, needName, shareVS, unlockVault, raceEvent,
     carImage: (k, st) => carImage(k, st), hideLevelUp, openRadar,
     currentExhaust: () => save.cars[save.current]?.style.exhaust ?? 0 };
 })();

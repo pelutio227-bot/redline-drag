@@ -26,6 +26,7 @@ const Duo = (() => {
   let me = null, rival = null, offset = 0, synced = false, pings = [];
   let go = null, myFinal = null, rivalFinal = null, lastSeen = 0, watchT = 0, sendT = 0, hbT = 0, finT = 0, joinT = 0;
   let resolved = false;
+  let rm = null;   // Rivalen-Match (rivals.js): { mid, mode, stake, pid, oppPid, oppName, … } — Auto fix, Auto-Start, Abrechnung Server
 
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
   const S = () => UI.save;
@@ -42,10 +43,21 @@ const Duo = (() => {
   // ── Einstieg ───────────────────────────────────────────────────────────────
   function open(joinCode){
     if (!window.Cloud?.sb){ UI.toast("iPhone Duo braucht Internet."); return; }
+    rm = null;
     if (!S().current){ UI.show("starter"); return; }
     UI.show("duo");
     if (joinCode) return join(joinCode);
     phase = "start"; render();
+  }
+  // Rivalen: Raum = Match-ID, Einlader ist Host; beide sind sofort bereit
+  function openMatch(c, isHost, opts){
+    rm = { ...opts, gone: false };
+    host = isHost; code = c;
+    UI.show("duo"); connect();
+    clearTimeout(joinT);
+    joinT = setTimeout(() => {
+      if (rm && !rival && phase !== "race"){ UI.toast(`${rm.oppName} ist nicht gekommen — nicht gewertet`); leave(true); Rivals.raceDone(); Rivals.open(); }
+    }, 20000);
   }
   function create(){
     host = true;
@@ -107,6 +119,7 @@ const Duo = (() => {
       window.NativeBridge?.haptic?.("medium");
       if (!host) startClockSync();
       if (phase === "connecting" || phase === "wait") phase = "lobby";
+      if (rm) me = myState(true);
       sendState();
     }
     if (phase === "lobby") render();
@@ -128,10 +141,12 @@ const Duo = (() => {
 
   // ── Lobby ──────────────────────────────────────────────────────────────────
   function toggleReady(){
+    if (rm) return;
     me = myState(!me.ready);
     sendState(); render(); maybeGo();
   }
   function pickCar(k){
+    if (rm) return;
     if (!S().cars[k]?.owned) return;
     S().current = k; UI.persist();
     me = myState(false); sendState(); render();
@@ -195,8 +210,9 @@ const Duo = (() => {
     // Gegner noch unterwegs: max. 20 s warten, dann zählt er als nicht im Ziel
     finT = setTimeout(() => {
       if (phase !== "race" || rivalFinal) return;
-      if (Date.now() - lastSeen < 6000) resolve("win", null); else resolve("lost");
+      if (rm || Date.now() - lastSeen < 6000) resolve("win", null); else resolve("lost");
     }, 20000);
+    if (rm?.gone) return resolve("win", null);
     tryResolve();
   }
   function onFinal(p){
@@ -224,17 +240,24 @@ const Duo = (() => {
     phase = "result";
     me = myState(false); sendState();
     const connected = status !== "lost";
+    // Rivalen: eigene Zeit an den Server melden — er entscheidet (auch wenn einer nie meldet)
+    if (rm){
+      const mm = rm;
+      Cloud.sb.rpc("wager_report", { p_match: mm.mid, p_pid: mm.pid, p_et: myFinal?.et ?? null, p_aborted: status === "aborted" })
+        .then(() => {}, () => {});
+    }
     const show = () => {
       Race.endDuo();
       if (status === "win" || status === "forfeit") AudioSys.winJingle(); else if (status === "lose") AudioSys.loseThud();
       UI.showDuoResults({ status, myEt: myFinal?.et ?? null, rivalEt, trap: myFinal?.trap, rt: myFinal?.rt,
-                          rivalName: go?.his?.name ?? rival?.name ?? "GEGNER", connected });
+                          rivalName: go?.his?.name ?? rival?.name ?? rm?.oppName ?? "GEGNER", connected, wager: rm });
     };
     // Ziel-Moment kurz stehen lassen, bei Abbruch/Verlust sofort
     (status === "win" || status === "lose" || status === "draw") ? setTimeout(show, 1100) : show();
   }
   function abort(){
     if (phase !== "race") return;
+    if (rm && !confirm(rm.mode === "hardcore" ? "Aufgeben = verloren — dein Auto geht an " + rm.oppName + ". Wirklich aufgeben?" : "Aufgeben = verloren (Einsatz weg). Wirklich?")) return false;
     send("abort", { rid: go.rid, id: myId });
     resolve("aborted");
   }
@@ -247,11 +270,18 @@ const Duo = (() => {
   function watchdog(){
     if (!rival) return;
     const quiet = Date.now() - lastSeen;
+    if (rm && phase === "race"){ if (quiet > 6000 && !rivalFinal) rivalGone(); return; }
     if (phase === "race" && quiet > (myFinal ? 25000 : 6000) && !rivalFinal) rivalGone();
     else if ((phase === "lobby" || phase === "result") && quiet > 12000) rivalGone();
   }
   function rivalGone(selfLost = false){
     const name = rival?.name ?? "Gegner";
+    // Rivalen: Gegner weg (App zu/Netz weg) → weiterfahren, Ziel erreichen = Sieg (Server wertet)
+    if (phase === "race" && rm){
+      if (!rm.gone){ rm.gone = true; UI.toast(`${name} ist weg — fahr ins Ziel!`); }
+      if (myFinal) resolve("win", null);
+      return;
+    }
     if (phase === "race"){ resolve("lost"); }
     rival = null;
     if (phase === "lobby"){
@@ -269,8 +299,9 @@ const Duo = (() => {
     rival = null; go = null;
   }
   function leave(silent){
-    if (phase === "race") abort();
+    if (phase === "race" && abort() === false) return;
     cleanup();
+    if (rm){ rm = null; Rivals.raceDone(); }
     phase = "start"; code = null;
     if (!silent) UI.show("menu");
   }
@@ -315,6 +346,11 @@ const Duo = (() => {
       inp.oninput = () => { inp.value = inp.value.replace(/\D/g, "").slice(0, 5); if (inp.value.length === 5) inp.blur(); };
       $("duoJoin").onclick = () => join(inp.value);
       inp.onkeydown = e => { if (e.key === "Enter") join(inp.value); };
+      return;
+    }
+    if (rm && phase !== "result"){
+      el.innerHTML = card(`<p class="duostat" style="font-size:14px">${rm.mode === "hardcore" ? "☠ HARDCORE" : rm.stake ? "Einsatz $" + rm.stake.toLocaleString("de-CH") : "Rennen um die Ehre"} gegen <b>${esc(rm.oppName)}</b></p>
+        <div class="spin"></div><p class="duostat">${rival ? "Uhren werden abgeglichen — Start gleich…" : "Verbinde…"}</p>`);
       return;
     }
     if (phase === "connecting"){
@@ -380,7 +416,7 @@ const Duo = (() => {
   // App geht in den Hintergrund → Lobby-Herzschlag pausiert; beim Zurückkommen sofort melden
   document.addEventListener("visibilitychange", () => { if (!document.hidden && ch) sendState(); });
 
-  return { open, leave, abort, rematch, backToLobby,
+  return { open, openMatch, leave, abort, rematch, backToLobby, get rivalMatch(){ return rm; },
     get racing(){ return phase === "race"; },
     _debug: () => ({ phase, code, host, offset, synced, rival: rival?.name, myFinal, rivalFinal }) };
 })();

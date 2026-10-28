@@ -77,6 +77,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Damit Redline Rivalen in deiner Nähe findet. Geteilt wird nur eine grobe Zone (ca. 40 km), nie deine genaue Position.</string>
 	<key>UIRequiresFullScreen</key>
 	<true/>
 	<key>UIUserInterfaceStyle</key>

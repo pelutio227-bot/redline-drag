@@ -372,6 +372,60 @@
   .duelcar span{display:block;font-size:11px;font-weight:800;font-style:italic}
 
   @media (min-width:760px){ .scroll,#starterCards{max-width:640px;margin:0 auto;width:100%} .rescard{width:min(440px,92vw)} }
+  /* ── Rivalen (rivals.js) ── */
+  .rivbtn{position:relative}
+  .rivon{position:absolute;top:8px;right:10px;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--grn);color:#04130a;font-size:11px;font-weight:900;line-height:20px}
+  .rv-tabs{display:flex;gap:6px;margin-top:6px}
+  .rv-tabs button{flex:1;min-height:44px;border-radius:12px;background:var(--panel);border:1px solid var(--line);color:var(--mut);font-weight:800;font-size:13px}
+  .rv-tabs button.on{color:#fff;border-color:var(--red);background:rgba(255,45,64,.12)}
+  .rv-tabs em{font-style:normal;color:var(--grn);font-size:11px;margin-left:4px}
+  .rv-radar{position:relative;width:150px;height:150px;margin:18px auto 6px;border-radius:50%;border:1px solid rgba(255,45,64,.35);
+    background:radial-gradient(circle,rgba(255,45,64,.14),transparent 70%);display:flex;align-items:center;justify-content:center}
+  .rv-radar i{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,45,64,.5);opacity:0}
+  .rv-radar.on i{animation:rvPing 2.4s ease-out infinite}
+  .rv-radar.on i:nth-child(2){animation-delay:.8s} .rv-radar.on i:nth-child(3){animation-delay:1.6s}
+  .rv-radar b{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums}
+  @keyframes rvPing{0%{transform:scale(.2);opacity:.9}100%{transform:scale(1.15);opacity:0}}
+  .rv-hero .rv-radar{width:96px;height:96px;margin:4px auto 10px}
+  .rv-tier{text-align:center;font-weight:900;font-size:16px;letter-spacing:.02em;margin-top:6px}
+  .rv-match{display:flex;align-items:stretch;gap:8px;margin-top:10px}
+  .rv-match .duelvs{align-self:center}
+  .rv-car{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:6px}
+  .rv-car.me{border-color:rgba(110,168,255,.35)}
+  .rv-who{display:flex;gap:8px;align-items:center;min-width:0}
+  .rv-who > div{min-width:0} .rv-who > div > b{display:block;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rv-who > .lvb{flex-shrink:0}
+  .rv-who small{display:block;font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rv-car img{width:100%;aspect-ratio:12/5;object-fit:contain}
+  .rv-stats{display:flex;justify-content:space-between;font-size:12px;color:var(--mut)} .rv-stats b{color:#fff}
+  .rv-parts{font-size:10.5px;color:var(--mut);line-height:1.35}
+  .rv-modes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .rv-mode{min-height:64px;border-radius:14px;background:var(--panel2);border:1px solid var(--line);color:#fff;text-align:left;padding:10px 12px}
+  .rv-mode b{display:block;font-size:14px} .rv-mode small{display:block;font-size:11px;color:var(--mut);margin-top:3px}
+  .rv-mode.on{border-color:var(--red);background:rgba(255,45,64,.12)}
+  .rv-mode.hc.on{border-color:#ff2d40;background:linear-gradient(135deg,rgba(255,45,64,.28),rgba(80,0,10,.4))}
+  .rv-mode:disabled{opacity:.45}
+  .rv-stakes{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .rv-stake{flex:1 1 30%;min-height:44px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);color:#fff;font-weight:800;font-size:13px}
+  .rv-stake.on{border-color:var(--grn);color:var(--grn);background:rgba(40,220,120,.1)} .rv-stake:disabled{opacity:.35}
+  .rv-warn{margin-top:12px;padding:12px 14px;border-radius:14px;background:rgba(255,30,50,.1);border:1px solid rgba(255,45,64,.6);font-size:12.5px;line-height:1.45}
+  .rv-warn > b{display:block;color:#ff5468;font-size:14px;letter-spacing:.06em;margin-bottom:6px} .rv-warn p{margin:6px 0}
+  .rv-ack{display:flex;gap:10px;align-items:center;margin-top:10px;font-weight:800;min-height:44px}
+  .rv-ack input{width:22px;height:22px;accent-color:#ff2d40;flex-shrink:0}
+  .mbtn.hcgo{background:linear-gradient(180deg,#ff2d40,#8a0614);box-shadow:0 0 24px rgba(255,45,64,.45)}
+  .mbtn.sm{width:auto;min-height:36px;padding:6px 12px;font-size:12px;flex-shrink:0}
+  .rv-code{font:900 34px ui-monospace,Menlo,monospace;letter-spacing:.2em;text-align:center;color:#FFC61A;margin:4px 0 10px}
+  .rv-friend{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+  .rv-friend:first-of-type{border-top:0} .rv-friend > div{flex:1;min-width:0}
+  .rv-friend b{display:block;font-size:14px} .rv-friend small{display:block;font-size:11.5px;color:var(--mut)}
+  .rv-friend .dot{width:10px;height:10px;border-radius:50%;background:#4a4d59;flex-shrink:0}
+  .rv-friend .dot.on{background:var(--grn);box-shadow:0 0 8px var(--grn)} .rv-friend .dot.busy{background:var(--amb)}
+  .rv-x{min-width:36px;min-height:36px;background:none;border:0;color:var(--mut);font-size:15px}
+  .rv-pop{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(5,5,9,.78)}
+  .rv-pop-in{width:min(380px,100%);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:20px;text-align:center;animation:luIn .35s both}
+  .rv-pop-t{display:block;font-size:18px;font-weight:900;margin-bottom:6px} .rv-pop-in p{color:#c9ccd8;font-size:13.5px;margin:6px 0}
+  .rv-pop-btns{display:flex;flex-direction:column;gap:8px;margin-top:14px} .rv-pop-btns .mbtn{width:100%}
+  .loot.hcl{border:1px solid rgba(255,45,64,.6)}
   @media (min-width:700px) and (min-height:1000px){ #menu > :not(.cash){zoom:1.3} #menu{gap:8px} }
   @media (max-height:700px){ .rescard{padding:20px 18px} .rescard .big{font-size:38px} .resgrid{margin-top:10px;gap:6px} .resgrid div{padding:8px 10px} }
 
@@ -597,12 +651,18 @@
     <button class="mbtn primary radarbtn" data-go="radar">Strassen-Radar<small>Herausforderer suchen</small></button>
     <button class="mbtn" data-go="garage" id="menuGarage">Garage<small>Teile · Talente · Style · Sammlung</small></button>
     <button class="mbtn" data-go="duo">⚔ Duell<small>Gegen Freunde — Handy an Handy, Code oder QR</small></button>
-    <button class="mbtn" data-go="quick">Testfahrt<small>Setup ausprobieren — ohne Belohnung</small></button>
+    <button class="mbtn rivbtn" data-go="rivals">📡 Rivalen<b class="rivon" id="rivOnline" style="display:none">0</b><small>In der Nähe &amp; Freunde — um Cash oder ☠ Hardcore</small></button>
     <button class="mbtn vault" data-go="vault">🔑 VAULT &amp; SHOP<small>Exklusive Legenden · Cash-Pakete · Autos sofort freischalten</small></button>
   </div>
   <button id="cloudBtn"></button>
   <button id="cloudMail">oder per E-Mail-Code anmelden</button>
   <button id="adminLink" style="display:none" onclick="location.href='admin.html'">🛠 Team-Admin</button>
+</div>
+
+<!-- Rivalen: Spieler in der Nähe + Freunde (rivals.js) -->
+<div class="screen" id="rivals">
+  <div class="hd"><button class="back" id="rivBack" aria-label="Zurück">‹</button><h2>Rivalen</h2><div class="cash" style="position:static" id="cash4b">0</div></div>
+  <div class="scroll" id="rivBody"></div>
 </div>
 
 <!-- Strassen-Radar: Herausforderer ziehen + VS -->
@@ -702,8 +762,9 @@
 <script src="js/perf.js?v=4"></script>
 <script src="js/game.js?v=34"></script>
 <script src="js/cloud.js?v=22"></script>
-<script src="js/duo.js?v=28"></script>
-<script src="js/ui.js?v=29"></script>
+<script src="js/duo.js?v=29"></script>
+<script src="js/rivals.js?v=3"></script>
+<script src="js/ui.js?v=33"></script>
 <script>
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
