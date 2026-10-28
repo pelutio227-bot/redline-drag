@@ -49,9 +49,14 @@ const AudioSys = (() => {
   // weiter am Master — WebKit rechnet diese Knoten im Audio-Thread mit, Rennen für Rennen mehr.
   // Darum: sobald die Quelle endet, alle Knoten der Kette abhängen.
   let shots = 0;   // laufende One-Shots (Diagnose perf.js)
+  // iOS feuert onended oft NICHT (Telemetrie iPhone: 2825 «offene» One-Shots nach 49 Rennen) → zusätzlich
+  // Zeit-Sicherung: spätestens nach 5 s wird abgehängt (längster One-Shot ≈ 2.5 s). Aufräumen ist idempotent.
   function done(src, ...nodes){
     shots++;
-    src.onended = () => { shots--; for (const n of [src, ...nodes]){ try { n.disconnect(); } catch {} } };
+    let gone = false;
+    const clean = () => { if (gone) return; gone = true; shots--; for (const n of [src, ...nodes]){ try { n.disconnect(); } catch {} } };
+    src.onended = clean;
+    setTimeout(clean, 5000);
   }
   const stats = () => ({ st: ctx?.state ?? "none", shots, eng: !!eng, sr: ctx?.sampleRate });
   function distCurve(amount){
