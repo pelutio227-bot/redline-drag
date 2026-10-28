@@ -15,8 +15,9 @@ const Race = (() => {
   let W=0,H=0,dpr=1;
   const BG = "#0A0A0E";
   function resize(){
-    dpr = Math.min(2, window.devicePixelRatio||1);
     W = window.innerWidth; H = window.innerHeight;
+    // Pixel-Budget (~2.2 MP, grosses iPhone): iPad hätte sonst 5.6 MP pro Frame → Ruckeln
+    dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1, Math.sqrt(2.2e6/(W*H))));
     cv.width = W*dpr; cv.height = H*dpr;
     g.setTransform(dpr,0,0,dpr,0,0);
     g.fillStyle = BG; g.fillRect(0,0,W,H);
