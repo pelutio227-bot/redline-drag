@@ -61,7 +61,18 @@ const UI = (() => {
     s.v = 3; s.pity = 0; s.restLv = 0.5; s.enc = null;
     s.stats ??= { wins:0, races:0, rar:{} }; s.seen ??= {};
   }
+  // Season-2-Neustart (29.10.2026, Wunsch Owner): ALLE Spielstände starten einmalig bei null.
+  // Bleibt: Name + bezahlte Autos (Vault/In-App, auf LV 1). Cloud: frischer Stand (s2fresh) gewinnt immer.
+  function freshStart(old){
+    const s = blankSave();
+    s.name = old?.name ?? "RACER";
+    if (old?.adminAt) s.adminAt = old.adminAt;
+    CAR_KEYS.forEach(k => { const c = old?.cars?.[k];
+      if (c?.owned && (c.iap || CAR_DEFS[k].vault)){ s.cars[k].owned = true; s.cars[k].iap = !!c.iap; } });
+    return s;
+  }
   function fixup(s){
+    if (!s.s2fresh){ const f = freshStart(s); Object.keys(s).forEach(k => delete s[k]); Object.assign(s, f); }
     CAR_KEYS.forEach(k => { if (!s.cars[k]) s.cars[k] = defaultCarState(k); });
     if (s.current && !s.cars[s.current]?.owned) s.current = CAR_KEYS.find(k => s.cars[k].owned) ?? null;
     migrateStyle(s); migrateV3(s);
@@ -80,9 +91,12 @@ const UI = (() => {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY));
       if (s?.cars){ fixup(s); applyRest(s); return s; }
     } catch {}
+    return blankSave();
+  }
+  function blankSave(){
     const cars = {};
     CAR_KEYS.forEach(k => cars[k] = defaultCarState(k));
-    return { v: 3, money: 600, current: null, name: "RACER", cars, pity: 0, restLv: 0, enc: null,
+    return { v: 3, s2fresh: 1, money: 600, current: null, name: "RACER", cars, pity: 0, restLv: 0, enc: null,
              stats: { wins:0, races:0, rar:{} }, seen: {}, styleV: 1, lastSeen: Date.now() };
   }
   const save = load();

@@ -13,7 +13,7 @@ const Cloud = (() => {
   // Fortschritt: Season 2 (v3) schlägt alte Stände; dann Summe aller Auto-Level/XP, dann Cash
   const score = s => {
     if (!s) return 0;
-    if ((s.v ?? 0) < 3) return (s.level ?? 0)*1e6 + (s.xp ?? 0);
+    if (!s.s2fresh) return (s.level ?? 0)*1e6 + (s.xp ?? 0);              // alter Stand (vor Neustart) verliert immer
     const prog = Object.values(s.cars || {}).reduce((a, c) => a + (c?.owned ? (c.lvl ?? 1)*1e5 + (c.xp ?? 0) : 0), 0);
     return 1e13 + prog*1e3 + Math.min(9.9e8, s.money ?? 0)/1000;
   };
