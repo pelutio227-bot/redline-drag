@@ -61,7 +61,9 @@ const Race = (() => {
     ]);
     const greenAt = opts.duo ? opts.duo.greenAt : 2.6 + Math.random()*0.8;
     const run = runCreate(spec, greenAt);
-    const remoteRacer = makeRacer(oSpec);
+    // Duo: Gegner-Lauf läuft LOKAL mit (gleiche Physik, seine Eingaben live übers Netz)
+    const rrun = opts.duo ? runCreate(oSpec, greenAt) : null;
+    const remoteRacer = rrun ? rrun.p : makeRacer(oSpec);
     st = {
       run, phase:"pre", t:0, treeT:0, green:null, greenAt,
       p: run.p, pBody, pWheel: wheelSprite(style.rim??0, 40),
@@ -72,7 +74,8 @@ const Race = (() => {
       oAx: carAx(opp.car, oSpec.def), oPitch:0, oPitchV:0,
       opp, doneT:null, flash:0, exh: style.exhaust ?? 0,
       exTipF: exhaustXFrac(opts.carKey, spec.def), neon: !!style.neon, hue: style.neonHue ?? style.hue ?? 0,
-      duo: opts.duo ?? null, remote: null, waiting: !!opts.duo, ended:false,
+      duo: opts.duo ?? null, waiting: !!opts.duo, ended:false,
+      rrun, rev: [], rKnown: 0, rDirty: false, rEi: 0, rCode: 0, oOff: 0, sentN: 0,
     };
     input.gas = false; input.nos = false; input.shiftReq = false;
     AudioSys.unlock(); AudioSys.startEngine(soundProfile(opts.carKey, style.exhaust ?? 0, spec.turbo));
@@ -80,6 +83,8 @@ const Race = (() => {
     const sh = document.getElementById("pShift"); if (sh) sh.dataset.gear = "0";
     parts.length = 0;
     lastT = performance.now(); acc = 0;
+    // Duo: gemeinsamer Start auf der monotonen Uhr (Date.now kann springen)
+    if (st.duo) st.duo.t0 = lastT + (st.duo.startAt - Date.now());
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(loop);
   }
@@ -94,12 +99,13 @@ const Race = (() => {
     // Duo: bis zum gemeinsamen Startzeitpunkt nur warten (Countdown, kein Motor-Input
     // → beide Läufe starten exakt gleich bei Tick 0)
     if (st.waiting){
-      if (Date.now() < st.duo.startAt){ p.throttle = 0; stepRacer(p, dt, 0); return; }
+      if (performance.now() < st.duo.t0){ p.throttle = 0; stepRacer(p, dt, 0); return; }
       st.waiting = false; p.rpm = p.spec.def.idle;
     }
     const wasLaunched = p.launched;
     const ev = runTick(run, { gas: input.gas, nos: input.nos, shift: input.shiftReq });
     input.shiftReq = false;
+    if (st.duo && run.events.length !== st.sentN){ st.sentN = run.events.length; st.duo.onInput?.(); }
     st.t = run.t; st.treeT = run.treeT;
     if (run.green != null && st.green == null){ st.green = run.green; AudioSys.beep(880,.3,.4); }
     if (run.phase === "tree" && st.phase === "pre") st.phase = "tree";
@@ -149,11 +155,36 @@ const Race = (() => {
       }
     }
   }
-  // Duo: Gegner-Auto aus zeitgestempelten Snapshots (Tick-Index) — Position wird auf
-  // den EIGENEN Tick hochgerechnet, unabhängig von der Netz-Latenz.
+  // Duo: Gegner-Auto = sein deterministischer Lauf (runTick) mit seinen Live-Eingaben.
+  // Beide Geräte ticken ab demselben Startzeitpunkt → Tick N ist auf beiden iPhones derselbe
+  // Moment. Für noch nicht angekommene Ticks gilt seine letzte Eingabe (Gas/NOS gehalten,
+  // Schalten nicht). Kommt eine Eingabe verspätet, wird sein Lauf ab Start neu gerechnet
+  // (~1 ms) und der kleine Sprung optisch weggeblendet (oOff).
+  function remoteCode(t){
+    const E = st.rev;
+    while (st.rEi < E.length && E[st.rEi][0] <= t){ st.rCode = E[st.rEi][1]; st.rEi++; }
+    return t > st.rKnown ? (st.rCode & 3) : st.rCode;
+  }
+  function rStep(R){ const c = remoteCode(R.tick + 1); runTick(R, { gas: !!(c&1), nos: !!(c&2), shift: !!(c&4) }); }
   function remoteStep(dt){
-    const o = st.ai.racer, R = st.remote;
+    let R = st.rrun;
     if (!R) return;
+    if (st.legacy) return legacyStep(dt);
+    if (st.rDirty){
+      st.rDirty = false;
+      const old = R.p, to = R.tick;
+      R = runCreate(old.spec, st.greenAt); st.rEi = 0; st.rCode = 0;
+      while (R.tick < to) rStep(R);
+      R.p.wheelA = old.wheelA;
+      st.oOff += old.s - R.p.s;
+      st.rrun = R; st.ai.racer = R.p;
+    }
+    rStep(R);
+    st.oOff *= Math.exp(-12*dt);
+  }
+  // Gegner mit älterer App (nur Positions-Snapshots ~8/s): hochrechnen + nachziehen
+  function legacyStep(dt){
+    const o = st.ai.racer, R = st.legacy;
     o.launched = R.s > 0.05 || R.v > 0;
     const ahead = Math.max(0, Math.min(0.6, (st.run.tick - R.tick) / 120));
     const target = R.fin ? Math.max(o.s, R.s) : R.s + R.v*ahead;
@@ -197,7 +228,14 @@ const Race = (() => {
     let dt = (now-lastT)/1000; lastT = now;
     if (dt > 0.1) dt = 0.1;
     acc += dt;
-    while (acc >= DT && st){ physics(DT); acc -= DT; }
+    if (st.duo && !st.waiting){
+      // Duo: Ticks an der Uhr ausrichten statt am Frame-Takt → nach einem Ruckler holt das
+      // Gerät auf, Tick N bleibt auf beiden iPhones derselbe Moment
+      const want = Math.floor((now - st.duo.t0) * 0.12);
+      let n = 0;
+      while (st && st.run.tick < want && n++ < 480) physics(DT);
+      acc = 0;
+    } else while (acc >= DT && st){ physics(DT); acc -= DT; }
     if (!st) return;
     draw(dt);
     const p = st.p;
@@ -348,7 +386,7 @@ const Race = (() => {
     [st.oPitch, st.oPitchV] = springPitch(st.oPitch, st.oPitchV, o.launched?ot:0, dt);
 
     const py = roadY + laneH*0.62 - carH, px = W*0.30 - carW*0.5;
-    const oy = hz + laneH*0.55 - carH, ox = worldX(o.s) - carW*0.5;
+    const oy = hz + laneH*0.55 - carH, ox = worldX(o.s + (st.oOff||0)) - carW*0.5;
     drawCar(st.oBody, st.oWheel, st.oAx, ox, oy, carW, carH, wheelR, st.oPitch, o.wheelA);
     if ((p.boost > 0 && p.launched) || p.nosOn)
       drawAura(px, py, carW, carH, p.nosOn ? "nos" : "boost");
@@ -476,7 +514,10 @@ const Race = (() => {
         if (wells){
           g.fillStyle = "#05070a";      // Radhaus deckt das GANZE radierte Loch
           const hy = y + ((wells[i].hy ?? wells[i].y)/200)*h;   // Loch folgt der Tieferlegung
-          g.beginPath(); g.arc(wx, hy, (wells[i].hole ?? wells[i].r)*sc, 0, 7); g.fill();
+          const hr = (wells[i].hole ?? wells[i].r)*sc;
+          // nur oberhalb der Achse (Kotflügel deckt) — unten wäre es ein schwarzer «zweiter Reifen»
+          g.save(); g.beginPath(); g.rect(wx - hr - 1, hy - hr - 1, hr*2 + 2, wy - (hy - hr - 1)); g.clip();
+          g.beginPath(); g.arc(wx, hy, hr, 0, 7); g.fill(); g.restore();
           r = wells[i].r*sc - 2;        // Rad füllt sein Radhaus (Drag-Slicks grösser)
         }
         // Sprite hat 2px Leer-Rand rundum → hochskalieren, damit der Reifen
@@ -791,6 +832,12 @@ const Race = (() => {
       g.fillText(t.toFixed(2)+"s", 16, y+30);
       if (p.rt != null){ g.font="600 11px system-ui"; g.fillStyle="#8E92A3"; g.fillText("RT "+p.rt.toFixed(3), 16, y+46); }
     }
+    // Duo: wer vorne ist — live, in Metern (rechts oben, gegenüber der Zeit)
+    if (st.duo && st.rrun && p.launched && !(p.finished && o.finished)){
+      const d = p.s - (o.s + (st.oOff||0)), lead = d >= 0;
+      g.font="800 15px system-ui"; g.textAlign="right"; g.fillStyle = lead ? "#3BE37F" : "#FF2D40";
+      g.fillText((lead ? "VORNE +" : "HINTEN −") + Math.abs(d).toFixed(1) + " m", W-16, y+30);
+    }
   }
 
   function rr(x,y,w,h,r){
@@ -808,16 +855,29 @@ const Race = (() => {
     gear(){ return st ? st.p.gear : 0; },
     launched(){ return !!st?.p.launched; },
     // Duo: eigener Zustand (mit Tick-Zeitstempel) / Gegner-Zustand einspeisen
-    snapshot(){
+    // Eigene Eingaben fürs Netz: letzte k Ereignisse + Gesamtzahl n (Lücken erkennbar)
+    snapshot(k = 12){
       if (!st || st.waiting) return null;
-      const p = st.p;
-      return { tick: st.run.tick, s: +p.s.toFixed(2), v: +p.v.toFixed(2), a: +p.aVis.toFixed(1),
-               rpm: Math.round(p.rpm), fin: p.finished };
+      const E = st.run.events;
+      const p = st.p;   // s/v/… für ältere App-Versionen (Positions-Snapshots)
+      return { tick: st.run.tick, n: E.length, ev: k ? E.slice(-k) : E,
+               s: +p.s.toFixed(2), v: +p.v.toFixed(2), a: +p.aVis.toFixed(1), rpm: Math.round(p.rpm), fin: p.finished };
     },
-    setRemote(payload){ if (st) st.remote = payload; },
+    remoteInput(m){
+      if (!st?.rrun || !m) return;
+      if (!Array.isArray(m.ev)){ st.legacy = m; return; }   // Gegner mit alter App: nur Positionen
+      if (st.legacy){ if (m.tick >= 1e9) st.legacy = { tick: 1e9, s: 9999, v: 0, fin: true }; return; }
+      const E = st.rev, base = (m.n ?? m.ev.length) - m.ev.length;
+      if (base > E.length) return;                 // Lücke → nächste Voll-Liste abwarten
+      for (let i = E.length - base; i < m.ev.length; i++){
+        const e = m.ev[i]; E.push(e);
+        if (e[0] <= st.rrun.tick) st.rDirty = true;
+      }
+      if (m.tick > st.rKnown) st.rKnown = m.tick;
+    },
     debug(){ return st && { rpm: Math.round(st.p.rpm), green: st.green != null,
       launched: st.p.launched, launchQ: st.p.launchQ, boostMul: st.p.boostMul,
       phase: st.phase, zone: shiftZone(st.p.spec.def), waiting: st.waiting, gear: st.p.gear,
-      finished: st.p.finished, s: st.p.s }; },
+      finished: st.p.finished, s: st.p.s, tick: st.run.tick, oS: st.ai.racer.s + (st.oOff||0) }; },
   };
 })();

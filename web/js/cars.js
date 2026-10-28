@@ -1395,8 +1395,12 @@ async function carImageNow(defKey, st){                                     // P
     const c = out.getContext("2d");
     const ws = wheelSprite(st.rim ?? 0, 40);
     for (const wl of cv._wells){
+      // Radhaus nur OBERHALB der Achse dunkeln (hinterm Kotflügel) — sonst ragt die mit der
+      // Tieferlegung abgesenkte Scheibe unten als schwarzer «zweiter Reifen» raus
+      const hr = wl.hole ?? wl.r, hy = wl.hy ?? wl.y;
+      c.save(); c.beginPath(); c.rect(wl.x - hr - 1, hy - hr - 1, hr*2 + 2, wl.y - (hy - hr - 1)); c.clip();
       c.fillStyle = "#05070a";
-      c.beginPath(); c.arc(wl.x, wl.hy ?? wl.y, wl.hole ?? wl.r, 0, 7); c.fill();
+      c.beginPath(); c.arc(wl.x, hy, hr, 0, 7); c.fill(); c.restore();
       // Rad füllt sein Radhaus — Sprite hat 2px Leer-Rand rundum, deshalb
       // beim Zeichnen hochskalieren, sonst ist jeder Reifen ~5% zu klein
       const d = (wl.r - 2) * 2 * (ws.width / (ws.width - 4));

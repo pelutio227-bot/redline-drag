@@ -12,8 +12,8 @@
 // - Im Ziel schickt jedes Gerät seine Eingaben (Tick + Gas/NOS/Schalten). Beide
 //   Geräte fahren den Lauf des Gegners mit dessen Setup nach (replayRun) →
 //   identisches Ergebnis auf beiden iPhones, Manipulation fällt auf.
-// - Während des Rennens: Positions-Snapshots mit Tick-Stempel (~8/s) nur für die
-//   Anzeige des Gegner-Autos.
+// - Während des Rennens (seit 28.10.): jede Eingabe geht sofort raus (+ Takt 15/s mit Tick).
+//   Jedes Gerät rechnet den Gegner-Lauf live mit (game.js remoteStep) → echte Position.
 // Abbruch (✕) = Aufgabe; Verbindungsverlust = Rennen nicht gewertet.
 const Duo = (() => {
   const PUBLIC_URL = "https://l.abooz.ch/";
@@ -73,7 +73,7 @@ const Duo = (() => {
       .on("broadcast", { event:"ping" },  ({ payload }) => { if (host && payload.from === rival?.id) send("pong", { to: payload.from, t0: payload.t0, th: Date.now() }); })
       .on("broadcast", { event:"pong" },  ({ payload }) => { if (payload.to === myId) onPong(payload); })
       .on("broadcast", { event:"go" },    ({ payload }) => onGo(payload))
-      .on("broadcast", { event:"snap" },  ({ payload }) => { if (go && payload.rid === go.rid){ lastSeen = Date.now(); Race.setRemote(payload); } })
+      .on("broadcast", { event:"snap" },  ({ payload }) => { if (go && payload.rid === go.rid){ lastSeen = Date.now(); Race.remoteInput(payload); } })
       .on("broadcast", { event:"final" }, ({ payload }) => onFinal(payload))
       .on("broadcast", { event:"abort" }, ({ payload }) => onAbort(payload))
       .on("broadcast", { event:"leave" }, ({ payload }) => { if (payload.id === rival?.id) rivalGone(); })
@@ -115,7 +115,7 @@ const Duo = (() => {
   // ── Uhren-Abgleich (Gast): 5 Pings, kleinste Laufzeit gewinnt ─────────────
   function startClockSync(){
     pings = [];
-    for (let i = 0; i < 5; i++) setTimeout(() => send("ping", { from: myId, t0: Date.now() }), 150 + i*220);
+    for (let i = 0; i < 8; i++) setTimeout(() => send("ping", { from: myId, t0: Date.now() }), 150 + i*180);
   }
   function onPong(p){
     const now = Date.now(), rtt = now - p.t0;
@@ -163,15 +163,24 @@ const Duo = (() => {
     Race.start({
       carKey: mine.car, carState: { up: mine.up, tune: mine.tune, style: mine.style },
       opp: { name: his.name, car: his.car, up: his.up, tune: his.tune, style: his.style },
-      duo: { startAt, greenAt: p.greenAt, onLocalFinish: r => setTimeout(() => onLocalFinish(r), 0) },
+      duo: { startAt, greenAt: p.greenAt, onInput: pushInput, onLocalFinish: r => setTimeout(() => onLocalFinish(r), 0) },
       onEvent: UI.raceEvent, onDone: () => {},
     });
-    clearInterval(sendT);
-    sendT = setInterval(() => {
-      if (phase !== "race") return clearInterval(sendT);
-      const s = Race.snapshot();
-      if (s) send("snap", { rid: go.rid, ...s });
-    }, 125);
+    clearInterval(sendT); snapN = 0;
+    // Takt ~15/s: letzte Eingaben + Tick (= «bis hier weiss der Gegner alles»); jede 8. mit
+    // vollständiger Liste, falls ein Paket verloren ging
+    sendT = setInterval(() => { if (phase !== "race") return clearInterval(sendT); sendSnap(); }, 66);
+  }
+  let snapN = 0, lastSnapAt = 0, pushT = 0;
+  function sendSnap(){
+    const s = Race.snapshot(++snapN % 8 ? 12 : 0);
+    if (s){ lastSnapAt = performance.now(); send("snap", { rid: go.rid, ...s }); }
+  }
+  // Eigene Eingabe (Gas/NOS/Schalten) sofort raus — max. alle 20 ms gebündelt
+  function pushInput(){
+    if (phase !== "race" || pushT) return;
+    const wait = Math.max(0, 20 - (performance.now() - lastSnapAt));
+    pushT = setTimeout(() => { pushT = 0; if (phase === "race") sendSnap(); }, wait);
   }
   function onLocalFinish(r){
     if (phase !== "race" || myFinal) return;
@@ -198,7 +207,7 @@ const Duo = (() => {
     if (rep.et == null || Math.abs(rep.et - p.et) > 0.005)
       console.warn("[duo] Replay weicht ab", { gemeldet: p.et, replay: rep.et });
     rivalFinal = { et: rep.et, trap: rep.trap, rt: rep.rt, claimed: p.et };
-    Race.setRemote({ tick: 1e9, s: 9999, v: 0, fin: true });
+    Race.remoteInput({ tick: 1e9, n: (p.events || []).length, ev: p.events || [] });
     tryResolve();
   }
   function tryResolve(){
