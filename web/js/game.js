@@ -87,9 +87,11 @@ const Race = (() => {
     // Duo: gemeinsamer Start auf der monotonen Uhr (Date.now kann springen)
     if (st.duo) st.duo.t0 = lastT + (st.duo.startAt - Date.now());
     cancelAnimationFrame(raf);
+    window.Perf?.begin({ mode: st.duo ? "duo" : (opp.mode || opts.mode || "race"), car: opts.carKey, opp: opp.car });
     raf = requestAnimationFrame(loop);
   }
   function stop(){
+    window.Perf?.end({ fin: !!st?.p?.finished });
     cancelAnimationFrame(raf); AudioSys.stopEngine(); AudioSys.skid(false); st=null;
     input.gas = false; input.nos = false; input.shiftReq = false;
   }
@@ -226,6 +228,7 @@ const Race = (() => {
   function loop(now){
     raf = requestAnimationFrame(loop);
     if (!st) return;
+    const gap = now - lastT, w0 = performance.now();
     let dt = (now-lastT)/1000; lastT = now;
     if (dt > 0.1) dt = 0.1;
     acc += dt;
@@ -241,7 +244,9 @@ const Race = (() => {
     // Zeichnen max. ~60×/s (ProMotion-iPads liefern 120 Hz → doppelte GPU-Last); Physik läuft oben unabhängig
     if (now - lastDraw < 14) return;
     const ddt = Math.min(0.1, (now - lastDraw)/1000); lastDraw = now;
+    const w1 = performance.now();
     draw(ddt);
+    window.Perf?.frame(gap, w1 - w0, performance.now() - w1);
     const p = st.p;
     AudioSys.engine(p.rpm, p.throttle, p.spec.turbo ? Math.min(1, p.throttle*(p.rpm/p.spec.def.redline)) : 0);
     if (lastGas && !input.gas && p.spec.turbo && p.rpm > p.spec.def.redline*0.55 && !p.finished)

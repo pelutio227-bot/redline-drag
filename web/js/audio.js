@@ -48,9 +48,12 @@ const AudioSys = (() => {
   // Performance (iPad «ruckelt ab dem 4. Rennen»): fertige One-Shots hängen sonst mit Filter/Gain
   // weiter am Master — WebKit rechnet diese Knoten im Audio-Thread mit, Rennen für Rennen mehr.
   // Darum: sobald die Quelle endet, alle Knoten der Kette abhängen.
+  let shots = 0;   // laufende One-Shots (Diagnose perf.js)
   function done(src, ...nodes){
-    src.onended = () => { for (const n of [src, ...nodes]){ try { n.disconnect(); } catch {} } };
+    shots++;
+    src.onended = () => { shots--; for (const n of [src, ...nodes]){ try { n.disconnect(); } catch {} } };
   }
+  const stats = () => ({ st: ctx?.state ?? "none", shots, eng: !!eng, sr: ctx?.sampleRate });
   function distCurve(amount){
     const n = 256, curve = new Float32Array(n);
     for (let i=0;i<n;i++){
@@ -317,6 +320,6 @@ const AudioSys = (() => {
     if (big){ tone(98, 1.2, { type:"sawtooth", gain:0.2, glide:49, lp:500 }); [392, 523, 659, 784].forEach((f, i) => tone(f, 0.9, { gain:0.1, at:0.3 + i*0.1 })); }
   }
 
-  return { unlock, startEngine, engine, stopEngine, shiftPop, bov, turboRelease, bang, whoosh, nosHiss, skid, beep, winJingle, loseThud,
+  return { stats, unlock, startEngine, engine, stopEngine, shiftPop, bov, turboRelease, bang, whoosh, nosHiss, skid, beep, winJingle, loseThud,
            tone, radarTick, reveal, vsSlam, levelUp, loot };
 })();
