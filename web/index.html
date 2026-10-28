@@ -312,17 +312,9 @@
 
   /* Level-Up: Toast OBEN (nicht blockierend). Sitzt in der Statusleisten-Zone über
      dem Inhalt, nie über Knöpfen; Tippen schliesst, sonst weg nach 2.6 s. */
-  #lvlup{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;z-index:85;width:min(420px,calc(100vw - 24px));
     transform:translate(-50%,-140%);opacity:0;pointer-events:none;transition:transform .35s cubic-bezier(.2,1.2,.3,1),opacity .25s}
-  #lvlup.on{transform:translate(-50%,0);opacity:1;pointer-events:auto;cursor:pointer}
-  #lvlup .inner{display:flex;align-items:center;gap:12px;min-height:48px;padding:9px 40px 9px 16px;border-radius:16px;position:relative;
     background:linear-gradient(135deg,rgba(40,70,140,.96),rgba(20,24,40,.96));border:1px solid rgba(110,168,255,.45);
     box-shadow:0 14px 34px -14px rgba(61,123,255,.7);backdrop-filter:blur(8px)}
-  #lvlup .lu{font-size:13px;font-weight:900;letter-spacing:.14em;color:#BFD6FF;white-space:nowrap;font-style:italic}
-  #lvlup .lu b{font-size:22px;color:#fff;letter-spacing:0}
-  #lvlup .un{font-size:12.5px;color:#C9D2E6;line-height:1.3;min-width:0}
-  #lvlup .un b{color:#fff}
-  #lvlup .x{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:13px;color:#9fb3d9}
   @keyframes pop{0%{transform:scale(.5);opacity:0}100%{transform:scale(1);opacity:1}}
 
   /* VS-Challenge */
@@ -381,6 +373,191 @@
 
   @media (min-width:760px){ .scroll,#starterCards{max-width:640px;margin:0 auto;width:100%} .rescard{width:min(440px,92vw)} }
   @media (max-height:700px){ .rescard{padding:20px 18px} .rescard .big{font-size:38px} .resgrid{margin-top:10px;gap:6px} .resgrid div{padding:8px 10px} }
+
+  /* ═══ Season 2 (28.10.2026): Auto-Level, Radar, VS, Loot, Talente ═══ */
+  :root{ --r-grey:#9DA3B4; --r-green:#2BE05E; --r-blue:#3D8BFF; --r-epic:#B25CFF; --r-legend:#FF9A1F; --gold:#FFD34D }
+  .r-grey{--rc:var(--r-grey)} .r-green{--rc:var(--r-green)} .r-blue{--rc:var(--r-blue)} .r-epic{--rc:var(--r-epic)} .r-legend{--rc:var(--r-legend)}
+  /* Level-Plakette (Ring in Seltenheitsfarbe) */
+  .lvb{position:relative;display:inline-grid;place-items:center;width:48px;height:48px;flex:0 0 48px;border-radius:50%;
+    background:radial-gradient(circle at 50% 35%,#2a2a36,#0d0d12);box-shadow:0 0 0 3px var(--rc,#9DA3B4),0 0 18px var(--rc,#9DA3B4),inset 0 2px 6px rgba(255,255,255,.12)}
+  .lvb i{font-style:normal;font-weight:900;font-size:19px;letter-spacing:-.02em}
+  .lvb::after{content:"LV";position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:900;letter-spacing:.12em;
+    background:var(--rc,#9DA3B4);color:#0b0b10;border-radius:6px;padding:1px 5px}
+  .lvb.sm{width:34px;height:34px;flex-basis:34px}.lvb.sm i{font-size:14px}.lvb.sm::after{font-size:7.5px;bottom:-6px}
+  .lvb.max{box-shadow:0 0 0 3px var(--gold),0 0 26px var(--gold),inset 0 2px 6px rgba(255,255,255,.2)}
+  .clschip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:99px;font-size:10.5px;font-weight:900;letter-spacing:.12em;
+    color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);border:1px solid color-mix(in srgb,var(--c) 45%,transparent);font-style:normal}
+  /* XP-Balken (WoW): Fortschritt + ausgeruht (violett) */
+  .xpb{position:relative;height:14px;border-radius:7px;background:#101016;border:1px solid rgba(255,255,255,.1);overflow:hidden;box-shadow:inset 0 2px 4px rgba(0,0,0,.6)}
+  .xpb .rest{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(90deg,rgba(150,110,255,.45) 0 6px,rgba(150,110,255,.3) 6px 12px)}
+  .xpb .fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(180deg,#8fd0ff,#3d8bff 55%,#2a5fd0);box-shadow:0 0 12px rgba(61,139,255,.7);transition:width .9s cubic-bezier(.2,.8,.2,1)}
+  .xpb .tick{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.12)}
+  .xpb span{position:absolute;inset:0;display:grid;place-items:center;font-size:9.5px;font-weight:900;letter-spacing:.08em;color:#fff;text-shadow:0 1px 2px #000}
+  .xpline{display:flex;justify-content:space-between;font-size:10.5px;font-weight:800;color:var(--mut);margin-top:4px;letter-spacing:.04em}
+  .xpline .rs{color:#B39BFF}
+  /* Menü-Held: Namensplakette ÜBER dem Auto */
+  #heroPlate{display:flex;align-items:center;gap:12px;margin-top:10px;padding:8px 16px 8px 10px;border-radius:99px;background:rgba(14,14,20,.78);
+    border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(6px)}
+  #heroPlate .hp-t{text-align:left;line-height:1.15}
+  #heroPlate .hp-t b{display:block;font-size:17px;font-weight:900;font-style:italic;letter-spacing:.03em}
+  #heroPlate .hp-t span{font-size:11px;color:var(--mut);font-weight:700}
+  #heroXp{width:min(330px,84vw);margin-top:-6px}
+  .radarbtn{display:flex;flex-direction:column;align-items:center;overflow:hidden}
+  .radarbtn::before{content:"";position:absolute;inset:-60%;background:conic-gradient(from 0deg,transparent 0 300deg,rgba(255,255,255,.28) 350deg,transparent 360deg);animation:radSweep 2.6s linear infinite}
+  @keyframes radSweep{to{transform:rotate(360deg)}}
+  .radarbtn>*{position:relative}
+  .badge-dot{position:absolute;top:-6px;right:-6px;min-width:22px;height:22px;border-radius:11px;background:var(--gold);color:#111;font-size:12px;font-weight:900;display:grid;place-items:center;padding:0 6px;box-shadow:0 0 12px var(--gold)}
+  /* ── Radar (Herausforderer-Rolle) ── */
+  #radar{background:radial-gradient(80rem 50rem at 50% 30%,#1a1424,var(--bg) 60%)}
+  #radarBody{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 12px)}
+  .rad-title{font-size:12px;font-weight:900;letter-spacing:.32em;color:var(--mut);text-transform:uppercase}
+  .rad-q{font-size:22px;font-weight:900;font-style:italic;margin:4px 0 18px}
+  .rad-win{position:relative;width:100%;height:230px;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent);mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent)}
+  .rad-strip{position:absolute;top:10px;left:0;display:flex;gap:10px;will-change:transform}
+  .rc{position:relative;width:132px;height:206px;flex:0 0 132px;border-radius:14px;overflow:hidden;background:#111;border:2px solid var(--rc);box-shadow:0 0 16px color-mix(in srgb,var(--rc) 45%,transparent)}
+  .rc img{width:100%;height:100%;object-fit:cover;object-position:50% 12%}
+  .rc b{position:absolute;left:0;right:0;bottom:0;padding:16px 6px 6px;font-size:10.5px;font-weight:900;letter-spacing:.06em;text-align:center;
+    background:linear-gradient(transparent,rgba(0,0,0,.92) 45%);color:#fff}
+  .rc::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--rc)}
+  .rc.win{animation:rcWin .9s ease-out forwards}
+  @keyframes rcWin{0%{transform:scale(1)}30%{transform:scale(1.14);box-shadow:0 0 50px var(--rc)}100%{transform:scale(1.08);box-shadow:0 0 34px var(--rc)}}
+  .rad-mark{position:absolute;top:0;bottom:0;left:50%;width:4px;margin-left:-2px;background:linear-gradient(var(--red),#fff,var(--red));box-shadow:0 0 18px var(--red);z-index:2}
+  .rad-mark::before,.rad-mark::after{content:"";position:absolute;left:50%;transform:translateX(-50%);border:9px solid transparent}
+  .rad-mark::before{top:-2px;border-top-color:#fff}.rad-mark::after{bottom:-2px;border-bottom-color:#fff}
+  .rad-sig{display:flex;align-items:center;gap:8px;margin-top:18px;font-size:11px;font-weight:800;color:var(--mut);letter-spacing:.08em}
+  .rad-sig i{display:inline-block;width:8px;height:14px;border-radius:2px;background:#2a2a36}
+  .rad-sig i.on{background:var(--r-blue);box-shadow:0 0 8px var(--r-blue)}
+  .rad-hint{margin-top:12px;font-size:11px;color:#6b6f80}
+  .rad-flash{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 45%,var(--rc),transparent 60%);opacity:0}
+  .rad-flash.go{animation:radFlash 1.1s ease-out}
+  @keyframes radFlash{0%{opacity:0}15%{opacity:.85}100%{opacity:0}}
+  .shake{animation:shake .5s cubic-bezier(.36,.07,.19,.97)}
+  @keyframes shake{10%,90%{transform:translate(-2px,1px)}20%,80%{transform:translate(4px,-2px)}30%,50%,70%{transform:translate(-6px,3px)}40%,60%{transform:translate(6px,-3px)}}
+  .rarlbl{font-size:12px;font-weight:900;letter-spacing:.3em;text-transform:uppercase;color:var(--rc);text-shadow:0 0 16px var(--rc)}
+  /* ── VS-Bildschirm (Kampf-Look) ── */
+  .vs{position:relative;flex:1;width:100%;display:flex;flex-direction:column;overflow:hidden}
+  .vs-bg{position:absolute;inset:0;background:linear-gradient(160deg,color-mix(in srgb,var(--rc) 34%,#0a0a0e) 0 46%,#0a0a0e 46.2% 53.8%,#1a0d10 54% 100%)}
+  .vs-bg::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(160deg,rgba(255,255,255,.035) 0 2px,transparent 2px 14px)}
+  .vs-opp{position:relative;flex:1.15;display:flex;justify-content:flex-end;align-items:flex-end;padding:0 12px 0 0;animation:vsInR .55s cubic-bezier(.2,.9,.25,1.15) both}
+  .vs-portrait{position:absolute;right:-6%;bottom:0;height:112%;max-width:78%;object-fit:cover;object-position:50% 0;
+    -webkit-mask-image:linear-gradient(180deg,#000 70%,transparent),linear-gradient(90deg,transparent,#000 22%);-webkit-mask-composite:source-in;mask-composite:intersect;
+    mask-image:linear-gradient(180deg,#000 70%,transparent),linear-gradient(90deg,transparent,#000 22%);filter:drop-shadow(0 0 30px var(--rc))}
+  .vs-oinfo{position:relative;z-index:2;align-self:center;margin-right:auto;padding-left:16px;max-width:58%}
+  .vs-me{position:relative;flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 16px;animation:vsInL .55s .08s cubic-bezier(.2,.9,.25,1.15) both}
+  .vs-me img{width:min(330px,82vw);filter:drop-shadow(0 18px 24px rgba(0,0,0,.7))}
+  @keyframes vsInR{from{transform:translateX(70%);opacity:0}to{transform:none;opacity:1}}
+  @keyframes vsInL{from{transform:translateX(-70%);opacity:0}to{transform:none;opacity:1}}
+  .vs-mid{position:absolute;left:50%;top:47%;transform:translate(-50%,-50%);z-index:4;font-size:84px;font-weight:900;font-style:italic;letter-spacing:-.06em;
+    color:#fff;text-shadow:0 0 24px var(--red),4px 4px 0 var(--red),-2px -2px 0 #000;animation:vsSlam .5s .45s cubic-bezier(.2,1.6,.4,1) both}
+  @keyframes vsSlam{from{transform:translate(-50%,-50%) scale(3.2) rotate(-12deg);opacity:0}to{transform:translate(-50%,-50%) scale(1) rotate(-8deg);opacity:1}}
+  .vs-q{font-size:13px;font-style:italic;color:#d9dbe4;margin-top:8px;line-height:1.35;text-shadow:0 1px 6px #000}
+  .vs-ocar{display:block;width:min(190px,48vw);margin-top:6px;filter:drop-shadow(0 10px 14px rgba(0,0,0,.7)) drop-shadow(0 0 16px color-mix(in srgb,var(--rc) 50%,transparent))}
+  .vs-boss{margin-top:8px;font-size:11px;font-weight:800;color:var(--rc);letter-spacing:.04em}
+  .vs-loot{position:relative;z-index:3;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:4px 14px 0}
+  .vs-loot span{font-size:11.5px;font-weight:800;padding:5px 10px;border-radius:99px;background:rgba(14,14,20,.8);border:1px solid rgba(255,255,255,.1)}
+  .vs-btns{position:relative;z-index:3;display:flex;flex-direction:column;gap:8px;padding:12px 18px 6px;width:min(420px,100%);margin:0 auto}
+  .vs-btns .go{font-size:20px;padding:17px;letter-spacing:.12em}
+  .vs-btns .dodge{font-size:12px;padding:11px;color:var(--mut)}
+  /* WoW-Namensplakette mit Rahmen nach Seltenheit */
+  .np{display:flex;align-items:center;gap:10px}
+  .np-ring{position:relative;width:62px;height:62px;flex:0 0 62px;border-radius:50%;overflow:visible}
+  .np-ring img{position:relative;z-index:2;width:100%;height:100%;border-radius:50%;object-fit:cover;object-position:50% 10%;box-shadow:0 0 0 3px var(--rc),0 0 22px var(--rc);background:#0b0b10}
+  .np-ring .wing{position:absolute;z-index:1;top:-2px;width:30px;height:54px;pointer-events:none;filter:drop-shadow(0 0 6px rgba(0,0,0,.6))}
+  .np-ring .wing.l{left:-19px;transform:rotate(-8deg)}.np-ring .wing.r{right:-19px;transform:scaleX(-1) rotate(-8deg)}
+  .np:has(.wing) .np-t{margin-left:10px}
+  .np-ring .np-lv{position:absolute;z-index:3;bottom:-6px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:900;font-style:normal;padding:1px 6px;border-radius:7px;background:var(--rc);color:#0b0b10;white-space:nowrap}
+  .np-t b{display:block;font-size:19px;font-weight:900;font-style:italic;letter-spacing:.01em;color:var(--rc);text-shadow:0 0 14px color-mix(in srgb,var(--rc) 60%,transparent);line-height:1.05}
+  .np-t small{display:block;font-size:11.5px;font-weight:700;color:#c3c6d2;margin-top:2px}
+  .np-t em{display:inline-block;margin-top:4px;font-style:normal;font-size:9.5px;font-weight:900;letter-spacing:.2em;color:var(--rc);border:1px solid var(--rc);border-radius:4px;padding:1px 5px}
+  /* ── Ergebnis: Beute + XP ── */
+  #resHead{display:flex;justify-content:center;margin-bottom:10px}
+  #resLoot{display:flex;flex-direction:column;gap:8px;margin-top:12px;text-align:left}
+  .loot{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--panel2);font-weight:800;font-size:13.5px;animation:lootIn .45s both}
+  .loot i{font-style:normal;font-size:18px;width:24px;text-align:center}
+  .loot small{display:block;font-size:11px;color:var(--mut);font-weight:700}
+  @keyframes lootIn{from{transform:translateY(10px) scale(.96);opacity:0}to{transform:none;opacity:1}}
+  .loot.car{flex-direction:column;align-items:stretch;text-align:center;border:2px solid var(--rc);background:radial-gradient(circle at 50% 30%,color-mix(in srgb,var(--rc) 30%,#14141c),#14141c 70%);
+    box-shadow:0 0 30px color-mix(in srgb,var(--rc) 55%,transparent);animation:lootCar 1s both}
+  .loot.car img{width:min(280px,70vw);margin:0 auto}
+  @keyframes lootCar{0%{transform:rotateY(90deg) scale(.8);opacity:0}60%{transform:rotateY(-8deg) scale(1.04);opacity:1}100%{transform:none}}
+  #resXpBox{margin-top:14px;text-align:left}
+  #resXpBox .xpl{display:flex;align-items:center;gap:10px}
+  #resXpBox .xpb{flex:1}
+  /* ── Level-Up (vollflächig, goldene Lichtsäulen) ── */
+  #lvlup{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;background:rgba(5,5,9,.82);backdrop-filter:blur(6px)}
+  #lvlup.on{display:flex}
+  #lvlup .rays{position:absolute;left:50%;top:44%;width:180vmax;height:180vmax;transform:translate(-50%,-50%);
+    background:repeating-conic-gradient(from 0deg,rgba(255,211,77,.16) 0 6deg,transparent 6deg 18deg);animation:raysSpin 14s linear infinite;
+    -webkit-mask-image:radial-gradient(circle,#000 0,transparent 45%);mask-image:radial-gradient(circle,#000 0,transparent 45%)}
+  @keyframes raysSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+  #lvlup .pillar{position:absolute;left:50%;top:0;bottom:0;width:240px;transform:translateX(-50%);background:linear-gradient(90deg,transparent,rgba(255,220,120,.32),rgba(255,255,255,.55),rgba(255,220,120,.32),transparent);
+    animation:pillar 1.4s ease-out both;filter:blur(6px)}
+  @keyframes pillar{0%{transform:translateX(-50%) scaleX(0);opacity:0}25%{transform:translateX(-50%) scaleX(1.4);opacity:1}100%{transform:translateX(-50%) scaleX(1);opacity:.55}}
+  #lvlup .inner{position:relative;text-align:center;width:min(380px,90vw);animation:luIn .6s .15s cubic-bezier(.2,1.5,.4,1) both}
+  @keyframes luIn{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
+  #lvlup .lu-k{font-size:15px;font-weight:900;letter-spacing:.5em;color:var(--gold);text-shadow:0 0 18px var(--gold);padding-left:.5em}
+  #lvlup .lu-n{font-size:120px;font-weight:900;font-style:italic;line-height:1;letter-spacing:-.05em;background:linear-gradient(#fff6d0,#FFD34D 55%,#c98a12);
+    -webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 26px rgba(255,211,77,.7))}
+  #lvlup .lu-car{font-size:13px;font-weight:800;color:#e3e5ee;letter-spacing:.1em;margin-top:-4px}
+  #lvlup .un{display:flex;flex-direction:column;gap:7px;margin:18px 0}
+  #lvlup .un div{padding:10px 14px;border-radius:12px;background:rgba(255,211,77,.09);border:1px solid rgba(255,211,77,.35);font-size:13.5px;font-weight:800;color:#fff3c4;animation:lootIn .4s both}
+  #lvlup .un div b{color:var(--gold)}
+  /* ── Garage: Kopf, Teile, Talente, Sammlung ── */
+  #gCarName{display:flex;flex-direction:column;align-items:center;gap:6px}
+  #gCarName .gnp{display:flex;align-items:center;gap:10px}
+  #gCarName .gnp b{font-size:16px;font-weight:900;font-style:italic}
+  #gCarName .xpb{width:min(300px,76vw)}
+  .pips{display:flex;gap:3px;flex-wrap:wrap;max-width:120px}
+  .pips i{width:10px;height:6px;border-radius:2px;background:#2a2a36}
+  .pips i.on{background:var(--red);box-shadow:0 0 6px rgba(255,45,64,.6)}
+  .pips i.lk{background:#1a1a22;outline:1px dashed #333}
+  .buy.lockd{color:var(--mut);font-size:11.5px}
+  .passive{display:flex;gap:12px;align-items:center;padding:12px;border-radius:14px;background:color-mix(in srgb,var(--c) 10%,var(--panel2));border:1px solid color-mix(in srgb,var(--c) 40%,transparent)}
+  .passive .ic{width:44px;height:44px;flex:0 0 44px;border-radius:12px;display:grid;place-items:center;font-size:22px;background:color-mix(in srgb,var(--c) 22%,#0b0b10);color:var(--c)}
+  .passive b{display:block;font-size:14px}.passive span{font-size:12px;color:var(--mut)}
+  .tpts{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .tpts b{font-size:26px;font-weight:900;color:var(--gold);font-style:italic}
+  .ttabs{display:flex;gap:6px;margin:12px 0 4px}
+  .ttabs button{flex:1;padding:10px 2px;border-radius:11px;background:var(--panel2);border:1px solid var(--line);font-size:11px;font-weight:900;letter-spacing:.06em;color:var(--mut)}
+  .ttabs button.on{color:#fff;border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c);background:color-mix(in srgb,var(--c) 14%,var(--panel2))}
+  .ttabs button small{display:block;font-size:10px;color:var(--c);margin-top:1px}
+  .tree{display:flex;flex-direction:column;gap:14px;padding:12px 4px;position:relative}
+  .trow{display:flex;justify-content:center;gap:22px;position:relative}
+  .trow .req{position:absolute;left:0;top:50%;transform:translateY(-50%);font-size:9.5px;font-weight:800;color:#555a6a;writing-mode:vertical-rl}
+  .tn{position:relative;width:64px;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .tn .tic{width:58px;height:58px;border-radius:14px;display:grid;place-items:center;font-size:20px;font-weight:900;background:linear-gradient(145deg,#24242f,#121218);
+    border:2px solid #34343f;color:#666b7c;transition:transform .12s}
+  .tn.av .tic{border-color:color-mix(in srgb,var(--c) 70%,#fff);color:#fff;box-shadow:0 0 14px color-mix(in srgb,var(--c) 45%,transparent)}
+  .tn.has .tic{border-color:var(--c);color:var(--c);background:linear-gradient(145deg,color-mix(in srgb,var(--c) 30%,#1d1d26),#121218)}
+  .tn.full .tic{border-color:var(--gold);color:var(--gold);box-shadow:0 0 16px rgba(255,211,77,.5)}
+  .tn.cap .tic{border-radius:50%}
+  .tn.sel .tic{transform:scale(1.1);outline:2px solid #fff;outline-offset:2px}
+  .tn .rk{position:absolute;top:44px;right:-2px;font-size:10px;font-weight:900;padding:1px 5px;border-radius:6px;background:#0b0b10;border:1px solid #34343f;color:#c6c9d4}
+  .tn.has .rk{color:var(--c);border-color:var(--c)}
+  .tn span{font-size:9.5px;font-weight:800;text-align:center;line-height:1.15;color:#a5a9b8}
+  .tdet{margin-top:6px;padding:14px;border-radius:14px;background:var(--panel2);border:1px solid var(--line)}
+  .tdet b{font-size:15px}.tdet p{font-size:12.5px;color:#c6c9d4;margin:6px 0 10px}
+  .coll{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .cc{position:relative;padding:10px 8px 10px;border-radius:14px;background:var(--panel2);border:1px solid color-mix(in srgb,var(--rc) 40%,transparent);text-align:center}
+  .cc img{width:100%;aspect-ratio:12/5;object-fit:contain}
+  .cc.no img{filter:brightness(0) drop-shadow(0 0 1px color-mix(in srgb,var(--rc) 80%,transparent));opacity:.5}
+  .cc b{display:block;font-size:11.5px;font-weight:900;font-style:italic;margin-top:4px;color:var(--rc)}
+  .cc small{display:block;font-size:10px;color:var(--mut);font-weight:700}
+  .cc.cur{box-shadow:0 0 0 2px var(--red),0 0 18px rgba(255,45,64,.4)}
+  .cc .lvb{position:absolute;top:6px;left:6px}
+  .collh{display:flex;align-items:center;gap:8px;margin:16px 0 8px;font-size:11px;font-weight:900;letter-spacing:.24em;text-transform:uppercase;color:var(--rc)}
+  .collh::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--rc) 40%,transparent)}
+  /* Starter: Partner-Wahl */
+  .startercard .cls{display:flex;justify-content:center;margin:2px 0 6px}
+  .startercard .psv{margin-top:10px;text-align:left}
+  .s2note{margin:8px 18px 0;padding:12px 14px;border-radius:14px;background:rgba(255,211,77,.08);border:1px solid rgba(255,211,77,.35);font-size:12.5px;color:#fff1c2;line-height:1.4}
+  /* Lack-Felder mit Finish-Glanz, Sticker-Kacheln */
+  .sw.fin{background-image:linear-gradient(145deg,rgba(255,255,255,.55),transparent 38%,rgba(0,0,0,.35) 70%,rgba(255,255,255,.25))}
+  .sgrp{font-size:10.5px;font-weight:900;letter-spacing:.18em;color:var(--mut);margin:10px 0 4px;text-transform:uppercase}
+  .stk{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px;margin:6px 0 4px}
+  .stk button{height:52px;border-radius:10px;background:#1b1b24;border:1px solid var(--line);font-size:10px;font-weight:900;color:#d7d9e2;padding:4px}
+  .stk button.on{border-color:var(--grn);box-shadow:inset 0 0 0 1px var(--grn)}
+  .stk button canvas{width:100%;height:100%}
 </style>
 </head>
 <body>
@@ -400,27 +577,26 @@
 <!-- Starter-Wahl -->
 <div class="screen" id="starter">
   <div class="hdw">
-    <span class="kick">Willkommen bei Redline</span>
-    <h2 class="display" style="font-size:30px">Wähle dein erstes Auto</h2>
-    <p class="mut" style="font-size:13px;margin-top:4px">Jedes hat Stärken &amp; Schwächen — alle sind ausbaubar.</p>
+    <span class="kick">Season 2 · Street Battles</span>
+    <h2 class="display" style="font-size:30px">Wähle deinen Partner</h2>
+    <p class="mut" style="font-size:13px;margin-top:4px">Ein Auto. Eine Reise bis Level 60. Japan, Deutschland oder USA — jede Schule hat ihre eigene Stärke.</p>
   </div>
   <div id="starterCards"></div>
 </div>
 
 <!-- Hauptmenü -->
 <div class="screen" id="menu">
-  <div id="lvlPill">LV 1 <i></i></div>
   <div class="cash" id="cash1">0</div>
-  <span class="kick">Quarter Mile Kings</span>
+  <span class="kick">Season 2 · Street Battles</span>
   <h1 class="display">RED<span class="rl">LINE</span></h1>
-  <div class="tag">Schalten · Tunen · Aufsteigen</div>
+  <div id="heroPlate"></div>
   <img id="menuCar" alt="">
-  <div id="menuCarName"></div>
+  <div id="heroXp"></div>
   <div class="menu-btns">
-    <button class="mbtn primary" data-go="career">Karriere<small>Liga 1 · Rennen 1/5</small></button>
-    <button class="mbtn" data-go="garage">Garage<small>Upgrades · Tuning · Style · Autos</small></button>
-    <button class="mbtn" data-go="duo">📱 iPhone Duo<small>Zwei Handys, ein Rennen — Code oder QR</small></button>
-    <button class="mbtn" data-go="quick">Freies Rennen<small>Eine schnelle Runde, ohne Liga-Druck</small></button>
+    <button class="mbtn primary radarbtn" data-go="radar">Strassen-Radar<small>Herausforderer suchen</small></button>
+    <button class="mbtn" data-go="garage" id="menuGarage">Garage<small>Teile · Talente · Style · Sammlung</small></button>
+    <button class="mbtn" data-go="duo">⚔ Duell<small>Gegen Freunde — Handy an Handy, Code oder QR</small></button>
+    <button class="mbtn" data-go="quick">Testfahrt<small>Setup ausprobieren — ohne Belohnung</small></button>
     <button class="mbtn vault" data-go="vault">🔑 VAULT &amp; SHOP<small>Exklusive Legenden · Cash-Pakete · Autos sofort freischalten</small></button>
   </div>
   <button id="cloudBtn"></button>
@@ -428,10 +604,10 @@
   <button id="adminLink" style="display:none" onclick="location.href='admin.html'">🛠 Team-Admin</button>
 </div>
 
-<!-- Karriere -->
-<div class="screen" id="career">
-  <div class="hd"><button class="back" data-go="menu">‹</button><h2>Karriere</h2><div class="cash" style="position:static" id="cash2">0</div></div>
-  <div class="scroll" id="careerList"></div>
+<!-- Strassen-Radar: Herausforderer ziehen + VS -->
+<div class="screen" id="radar">
+  <div class="hd"><button class="back" id="radarBack" aria-label="Zurück">‹</button><h2>Strassen-Radar</h2><div class="cash" style="position:static" id="cash2">0</div></div>
+  <div id="radarBody"></div>
 </div>
 
 <!-- Garage -->
@@ -440,19 +616,20 @@
   <div class="scroll">
     <div class="preview"><div class="gcarwrap"><img id="gCar" alt=""><span id="gProbe">PROBE</span></div><div id="gCarName"></div></div>
     <div class="tabs" id="gTabs">
-      <button data-t="cars" class="on">Autos</button>
-      <button data-t="up">Upgrades</button>
-      <button data-t="tune">Tuning</button>
+      <button data-t="up" class="on">Teile</button>
+      <button data-t="tal">Talente</button>
       <button data-t="style">Style</button>
+      <button data-t="tune">Setup</button>
+      <button data-t="cars">Sammlung</button>
     </div>
     <div id="gBody"></div>
   </div>
-  <div class="gobar"><button class="mbtn primary" id="gRace">▶ Zum Rennen</button></div>
+  <div class="gobar"><button class="mbtn primary" id="gRace">▶ Strassen-Radar</button></div>
 </div>
 
 <!-- iPhone Duo (js/duo.js) -->
 <div class="screen" id="duo">
-  <div class="hd"><button class="back" id="duoBack" aria-label="Zurück">‹</button><h2>iPhone Duo</h2><div class="roomcode" id="duoCodePill" style="display:none">CODE <b id="duoCodeSmall"></b></div></div>
+  <div class="hd"><button class="back" id="duoBack" aria-label="Zurück">‹</button><h2>Duell</h2><div class="roomcode" id="duoCodePill" style="display:none">CODE <b id="duoCodeSmall"></b></div></div>
   <div class="scroll" id="duoBody"></div>
 </div>
 
@@ -470,10 +647,12 @@
 <!-- Results -->
 <div class="screen" id="results">
   <div class="rescard">
+    <div id="resHead"></div>
     <div class="big" id="resTitle">SIEG</div>
     <div class="mut" id="resSub" style="font-size:13px;margin-top:2px"></div>
     <div class="resgrid" id="resGrid"></div>
-    <div id="resXp"></div>
+    <div id="resXpBox"></div>
+    <div id="resLoot"></div>
     <div id="resTip" class="restip" style="display:none"></div>
     <div class="resbtns" id="resBtns"></div>
   </div>
@@ -499,11 +678,13 @@
   </div>
 </div>
 
-<!-- Level-Up: Toast oben, antippbar zum Schliessen -->
-<div id="lvlup" role="status" aria-live="polite"><div class="inner">
-  <div class="lu">LEVEL <b id="lvlupNum">2</b></div>
+<!-- Level-Up: vollflächig mit Lichtsäule (Season 2) -->
+<div id="lvlup" role="dialog" aria-live="polite"><div class="rays"></div><div class="pillar"></div><div class="inner">
+  <div class="lu-k">LEVEL UP</div>
+  <div class="lu-n" id="lvlupNum">2</div>
+  <div class="lu-car" id="lvlupCar"></div>
   <div class="un" id="lvlupUnlocks"></div>
-  <span class="x" aria-hidden="true">✕</span>
+  <button class="mbtn primary" id="lvlupOk" style="width:100%">Weiter</button>
 </div></div>
 
 <div id="toast"></div>
@@ -511,16 +692,16 @@
 <script>window.VAULT_LINK = "https://buy.stripe.com/5kQfZidi1fNdefBeus1kA02";</script>
 <script src="js/vendor/supabase.js?v=15"></script>
 <script src="js/vendor/qrcode.js?v=17"></script>
-<script src="assets/cars/meta.js?v=26"></script>
+<script src="assets/cars/meta.js?v=27"></script>
 <script src="assets/cars/kitmeta.js?v=24"></script>
-<script src="js/cars.js?v=29"></script>
-<script src="js/audio.js?v=27"></script>
-<script src="js/sim.js?v=26"></script>
-<script src="js/career.js?v=25"></script>
-<script src="js/game.js?v=30"></script>
-<script src="js/cloud.js?v=20"></script>
-<script src="js/duo.js?v=27"></script>
-<script src="js/ui.js?v=27"></script>
+<script src="js/cars.js?v=30"></script>
+<script src="js/audio.js?v=28"></script>
+<script src="js/rpg.js?v=1"></script>
+<script src="js/sim.js?v=27"></script>
+<script src="js/game.js?v=31"></script>
+<script src="js/cloud.js?v=21"></script>
+<script src="js/duo.js?v=28"></script>
+<script src="js/ui.js?v=28"></script>
 <script>
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>

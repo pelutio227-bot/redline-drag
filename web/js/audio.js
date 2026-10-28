@@ -254,5 +254,57 @@ const AudioSys = (() => {
   }
   function loseThud(){ beep(140, .4, .35); setTimeout(()=>beep(110, .5, .3), 180); }
 
-  return { unlock, startEngine, engine, stopEngine, shiftPop, bov, turboRelease, bang, whoosh, nosHiss, skid, beep, winJingle, loseThud };
+  // ── Season 2: Radar, Seltenheit, VS, Level-Up, Beute (28.10.) ──
+  // Ton mit Hüllkurve; glide = Zielfrequenz (Pitch-Fahrt), at = Startversatz in s
+  function tone(freq, dur, { type = "sine", gain = 0.25, at = 0, glide = null, attack = 0.005, lp = null } = {}){
+    if (!ensure()) return;
+    const t0 = ctx.currentTime + at;
+    const o = ctx.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t0);
+    if (glide) o.frequency.exponentialRampToValueAtTime(glide, t0 + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    let node = o.connect(g);
+    if (lp){ const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lp; node = g.connect(f); }
+    node.connect(master); o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+  // Radar-Rolle: kurzes «Tick» pro Karte (Tonhöhe sinkt, wenn die Rolle bremst)
+  function radarTick(k = 1){ tone(1800*k, 0.035, { type:"square", gain:0.06, lp:3200 }); noiseBurst(0.02, "highpass", 5000, 1, 0.05); }
+  // Seltenheit enthüllt — je seltener, desto grösser
+  function reveal(rar){
+    if (rar === "grey"){ tone(160, 0.25, { type:"triangle", gain:0.3, glide:90 }); return; }
+    if (rar === "green"){ tone(660, 0.5, { gain:0.18 }); tone(990, 0.6, { gain:0.14, at:0.08 }); return; }
+    if (rar === "blue"){ [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.7, { gain:0.13, at:i*0.06 })); noiseBurst(0.6, "highpass", 6000, 1, 0.06); return; }
+    // Episch/Legendär: tiefer Einschlag + Chor-Fläche (+ Glocken)
+    tone(110, 1.6, { type:"sawtooth", gain:0.28, glide:38, lp:400 });
+    noiseBurst(0.9, "lowpass", 220, 0.8, 0.5);
+    const chord = rar === "legend" ? [196, 247, 294, 392, 494] : [185, 220, 277, 370];
+    chord.forEach((f, i) => { tone(f, 2.4, { type:"sawtooth", gain:0.05, at:0.15, attack:0.5, lp:1400 }); tone(f*1.005, 2.4, { type:"sawtooth", gain:0.04, at:0.15, attack:0.6, lp:1200 }); });
+    if (rar === "legend"){
+      [1568, 1976, 2349, 3136].forEach((f, i) => tone(f, 1.4, { gain:0.08, at:0.45 + i*0.09 }));
+      noiseBurst(1.4, "bandpass", 1800, 0.6, 0.12);
+    }
+  }
+  // VS-Einschlag (Kampf-Bildschirm)
+  function vsSlam(){
+    tone(140, 0.7, { type:"sine", gain:0.5, glide:36 });
+    noiseBurst(0.35, "lowpass", 900, 0.9, 0.55);
+    tone(2200, 0.25, { type:"square", gain:0.05, glide:600, lp:4000 });
+  }
+  // Level-Up: heller Glocken-«Ding» + aufsteigende Fanfare + Fläche
+  function levelUp(){
+    tone(1318, 1.6, { gain:0.22 }); tone(1975, 1.4, { gain:0.12, at:0.01 }); tone(2637, 1.0, { gain:0.06, at:0.02 });
+    [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.55, { type:"triangle", gain:0.16, at:0.25 + i*0.09 }));
+    [262, 330, 392, 523].forEach(f => tone(f, 2.2, { type:"sawtooth", gain:0.035, at:0.3, attack:0.4, lp:1600 }));
+  }
+  // Beute: Münz-Kaskade / neues Auto
+  function loot(big = false){
+    const n = big ? 9 : 5;
+    for (let i = 0; i < n; i++) tone(1400 + Math.random()*900, 0.12, { type:"triangle", gain:0.08, at:i*0.055 });
+    if (big){ tone(98, 1.2, { type:"sawtooth", gain:0.2, glide:49, lp:500 }); [392, 523, 659, 784].forEach((f, i) => tone(f, 0.9, { gain:0.1, at:0.3 + i*0.1 })); }
+  }
+
+  return { unlock, startEngine, engine, stopEngine, shiftPop, bov, turboRelease, bang, whoosh, nosHiss, skid, beep, winJingle, loseThud,
+           tone, radarTick, reveal, vsSlam, levelUp, loot };
 })();

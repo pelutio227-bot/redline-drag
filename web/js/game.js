@@ -44,16 +44,16 @@ const Race = (() => {
     let oSpec, oStyle, ai = null;
     if (opts.duo || opp.vsGhost){
       // Echtes Auto eines Menschen (Duo / Freund-Link): exakt sein Setup
-      const ost = { up: opp.up, tune: opp.tune };
+      const ost = { up: opp.up, tune: opp.tune, tal: opp.tal, lvl: opp.lvl };
       oSpec = buildSpec(opp.car, ost, raceDist);
       oStyle = opp.style ?? { hue: opp.hue ?? 0, drop:10, rim:1, exhaust:1, spoiler:1 };
       if (opp.vsGhost) ai = aiCreate(oSpec, 0.7);
     } else {
-      // KI-Rivale: feste Stärke aus der Liga (nicht ans Spieler-Setup angeglichen)
-      oSpec = rivalSpec(opp, opts.nerves ?? 0);
-      oStyle = { hue: opp.hue ?? 0, drop:10, rim:1 + (opp.tier ?? 0) % 3, exhaust: Math.min(3, 1 + Math.floor((opp.league ?? 0)/2)),
-                 spoiler: (opp.league ?? 0) >= 2 ? 2 : 1, kit: (opp.league ?? 0) >= 4 ? 2 : (opp.league ?? 0) >= 2 ? 1 : 0 };
-      ai = aiCreate(oSpec, opp.skill ?? 0.5);
+      // Radar-Gegner: feste Stärke aus Level × Seltenheit (rpg.js), nicht ans Spieler-Setup angeglichen
+      const enc = opp.enc;
+      oSpec = oppSpec(enc, raceDist);
+      oStyle = opp.style ?? { hue: opp.hue ?? 0, drop:10, rim:1, exhaust:1, spoiler:1 };
+      ai = aiCreate(oSpec, enc.skill);
     }
     const [pBody, oBody] = await Promise.all([
       carBodyImage(opts.carKey, style),
@@ -654,7 +654,7 @@ const Race = (() => {
     const a0 = Math.PI*0.78, a1 = Math.PI*2.22;
     const ang = f => a0 + (a1-a0)*Math.min(1, Math.max(0, f));
 
-    const [z0,z1] = shiftZone(def);
+    const [z0,z1] = shiftZone(def, p.spec.zoneMul);
     // Zifferblatt (Gehäuse, Lünette, Zonen, Skala, Ziffern) ist statisch → einmal in ein
     // Offscreen-Canvas zeichnen und pro Frame nur noch blitten (Text/Verläufe sind am iPhone teuer)
     const pad = 20, bx = cxx - R - pad, by = cy - R - pad, bs = 2*(R + pad);
@@ -877,7 +877,7 @@ const Race = (() => {
     },
     debug(){ return st && { rpm: Math.round(st.p.rpm), green: st.green != null,
       launched: st.p.launched, launchQ: st.p.launchQ, boostMul: st.p.boostMul,
-      phase: st.phase, zone: shiftZone(st.p.spec.def), waiting: st.waiting, gear: st.p.gear,
+      phase: st.phase, zone: shiftZone(st.p.spec.def, st.p.spec.zoneMul), waiting: st.waiting, gear: st.p.gear,
       finished: st.p.finished, s: st.p.s, tick: st.run.tick, oS: st.ai.racer.s + (st.oOff||0) }; },
   };
 })();

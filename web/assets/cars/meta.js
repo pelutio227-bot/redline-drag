@@ -1,5 +1,9 @@
 // Foto-Sprite-Metadaten (handkalibriert): wx1/wx2 = Radmitten-X, wy = Radmitten-Y, r = Radradius(px).
 window.CAR_SPRITES = {
+  // Season-2-Starter (28.10.2026, Higgsfield Soul, gespiegelt → Front rechts)
+  hikari:   { src:"assets/cars/hikari.png",   w:960, h:423, wx1:155, wx2:775, wy:340, r:66, sill:306 },
+  bauer:    { src:"assets/cars/bauer.png",    w:960, h:421, wx1:186, wx2:800, wy:345, r:74 },
+  scorcher: { src:"assets/cars/scorcher.png", w:960, h:270, wx1:241, wx2:757, wy:207, r:63, wing:true, fixed:true },
   kaze:   { src:"assets/cars/kaze.png",   w:960, h:300, wx1:190, wx2:764, wy:190, r:62, sx:118, sy:108 },
   urban:  { src:"assets/cars/urban.png",  w:960, h:388, wx1:191, wx2:740, wy:290, r:67, sx:235, sy:62 },
   falco:  { src:"assets/cars/falco.png",  w:960, h:369, wx1:181, wx2:774, wy:296, r:53, sx:115, sy:200 },

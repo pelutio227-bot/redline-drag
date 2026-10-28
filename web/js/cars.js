@@ -22,16 +22,29 @@ function mkTorque(peak, peakRpm, redline, opt = {}){
 
 // key: name, desc; unlock = Karriere-Level; starter = Startwahl; zone = grüne Schaltzone (rpm).
 const CAR_DEFS = {
-  // ── Starter (Wahl 1 aus 3) ──
-  kaze:   { name:"KAZE ZX",    desc:"80er Keil-Coupé · federleicht, wenig Dampf", price:0, unlock:1, starter:true,
+  // ── Starter Season 2 (Wahl 1 aus 3: Japan · Deutschland · USA) ──
+  hikari: { name:"HIKARI EG",  desc:"Japan-Hatch · 90er Hochdrehzahl-Seele", price:0, unlock:1, starter:true,
+            mass:990,  wheelR:0.29, redline:8400, idle:950,  torque:mkTorque(158,6900,8400,{hold:.96,low:.55}),
+            gears:[3.25,1.90,1.36,1.03,0.85], final:4.25, shape:"hatch", grip:1.0, zone:600,
+            pros:"Dreht wie verrückt", cons:"Unten zahm" },
+  bauer:  { name:"BAUER GT",   desc:"Euro-Hatch · kantig, ehrlich, unkaputtbar", price:0, unlock:1, starter:true,
+            mass:960,  wheelR:0.29, redline:7200, idle:850,  torque:mkTorque(170,4600,7200,{low:.72,hold:.86}),
+            gears:[3.45,2.12,1.44,1.13,0.91], final:3.94, shape:"hatch", grip:1.02, zone:640,
+            pros:"Zieht von ganz unten", cons:"Oben kurzatmig" },
+  scorcher:{ name:"SCORCHER T/A", desc:"70er Muscle-Coupé · Hubraum statt Hightech", price:0, unlock:1, starter:true,
+            mass:1560, wheelR:0.33, redline:5800, idle:750,  torque:mkTorque(430,3200,5800,{low:.82,hold:.80}),
+            gears:[2.64,1.75,1.34,1.00], final:3.23, shape:"muscle", grip:0.95, zone:560,
+            pros:"Brachiales Drehmoment", cons:"Schwer wie ein Amboss" },
+  // ── Klassiker (Season 1-Starter) ──
+  kaze:   { name:"KAZE ZX",    desc:"80er Keil-Coupé · federleicht, wenig Dampf", price:0, unlock:1,
             mass:890,  wheelR:0.28, redline:7600, idle:950,  torque:mkTorque(150,5800,7600,{hold:.92}),
             gears:[3.25,1.95,1.35,1.03,0.84], final:4.25, shape:"wedge", grip:1.0, zone:650,
             pros:"Leicht · giftig", cons:"Wenig Drehmoment" },
-  urban:  { name:"URBAN R",    desc:"Kompakt-Hatch · der Allrounder der Szene", price:0, unlock:1, starter:true,
+  urban:  { name:"URBAN R",    desc:"Kompakt-Hatch · der Allrounder der Szene", price:0, unlock:1,
             mass:1020, wheelR:0.29, redline:8200, idle:1000, torque:mkTorque(165,6400,8200,{hold:.95}),
             gears:[3.23,2.10,1.48,1.11,0.89], final:4.30, shape:"hatch", grip:1.0, zone:650,
             pros:"Dreht hoch · ausgewogen", cons:"Braucht Drehzahl" },
-  falco:  { name:"FALCO 86",   desc:"Heck-Coupé · Drift-Balance-Legende", price:0, unlock:1, starter:true,
+  falco:  { name:"FALCO 86",   desc:"Heck-Coupé · Drift-Balance-Legende", price:0, unlock:1,
             mass:1080, wheelR:0.29, redline:7800, idle:950,  torque:mkTorque(175,5600,7800),
             gears:[3.59,2.02,1.38,1.00,0.86], final:4.10, shape:"coupe", grip:0.96, zone:640,
             pros:"Sauberer Punch", cons:"Heck will Grip" },
@@ -864,6 +877,8 @@ function measureSprite(im, m){
     if (xs.length >= 3){ xs.sort((p, q) => p - q); const nx = xs[xs.length >> 1]; if (Math.abs(nx - wd.x) < r*0.4) wd.x = nx; }
   };
   const mkWheel = (cx, cy, r0) => {
+    // fixed: Foto ohne Reifen (freigestellt) → Metadaten sind die Wahrheit, keine Detektion
+    if (m.fixed) return { x: cx, y: cy, r: r0, er: r0, fitted: true };
     const wd = fitTire(detectWheel(cx, cy, r0), r0);
     wd.er = wd.r;
     return capWheel(wd);
@@ -889,7 +904,8 @@ function measureSprite(im, m){
   const sillBot = sb > sa ? med(bot.slice(sa, sb)) : -1;
   // Vorder-/Hinterrad gleich gross (Detektion streut je nach Foto-Schatten), ausser das
   // Auto hat bewusst andere Hinterräder (m.rr = Drag-Slicks)
-  if (m.rr == null){
+  if (m.fixed) m._fit = { r: m.r, y: m.wy };
+  else if (m.rr == null){
     // Stimmen vorne/hinten überein (±12 %) → grösserer Wert; sonst ist einer durch Schürze/
     // Schatten aufgebläht → kleinerer, aber nie unter dem Metadaten-Radius
     const ra = wheels[0].er, rb = wheels[1].er;
@@ -918,7 +934,7 @@ function measureSprite(im, m){
   }
   return spriteMeasureCache[m.src] = { x0, x1, rearX, noseX, bumperY, noseY, noseRX,
     deckX: Math.round(x0 + w*0.08), deckY,
-    rearBot: bumBot >= 0 ? bumBot : rearBot, noseBot, sillBot, wheels, top, left };
+    rearBot: bumBot >= 0 ? bumBot : rearBot, noseBot, sillBot, wheels, top, bot, left };
 }
 function spriteLayout(m){
   // Rad = 28.8 Einheiten; nie breiter als der Canvas; nie höher als der Platz
@@ -1139,6 +1155,130 @@ function drawNeonTube(c, x1, x2, hue, gy){
   c.stroke();                                   // 2. Pass = kräftigerer Glow
   c.restore();
 }
+// ── Lack & Dekor (Season 2, 28.10.2026) ─────────────────────────────────────
+// Foto-Autos sind ROT generiert. Statt nur den Farbton zu drehen, wird jeder Lack-Pixel
+// mit seiner Original-Helligkeit (Licht/Schatten aus dem Foto) in den Ziel-Lack umgerechnet →
+// auch Weiss, Schwarz, Silber, Metallic, Perleffekt, Chrom und Candy sehen echt aus.
+// [id, Name, Gruppe (solid=Lackierpistole · pro=LV16 · leg=LV26), Farbton, Sättigung, Helligkeit, Finish]
+const PAINT_LIB = [
+  ["racing","Racing Rot","solid",355,.84,.46,"solid"], ["orange","Signal Orange","solid",22,.92,.5,"solid"],
+  ["yellow","Taxi Gelb","solid",47,.94,.52,"solid"],   ["lime","Lime","solid",86,.78,.45,"solid"],
+  ["green","Renngrün","solid",150,.58,.25,"solid"],    ["teal","Petrol","solid",186,.7,.3,"solid"],
+  ["blue","Tiefsee Blau","solid",214,.78,.34,"solid"], ["royal","Royal","solid",232,.72,.46,"solid"],
+  ["purple","Violett","solid",272,.6,.4,"solid"],      ["pink","Pink","solid",322,.78,.56,"solid"],
+  ["white","Polar Weiss","solid",210,.05,.9,"solid"],  ["grey","Beton Grau","solid",210,.05,.54,"solid"],
+  ["black","Mitternacht","solid",230,.14,.09,"solid"],
+  ["silver","Silber Metallic","pro",215,.06,.74,"metal"], ["gun","Gunmetal","pro",215,.1,.3,"metal"],
+  ["gold","Gold Metallic","pro",43,.66,.5,"metal"],       ["copper","Kupfer","pro",20,.62,.42,"metal"],
+  ["lagoon","Lagunen-Perl","pro",204,.82,.45,"pearl"],    ["mpurple","Nacht-Violett","pro",272,.55,.22,"pearl"],
+  ["emerald","Smaragd-Perl","pro",160,.72,.32,"pearl"],
+  ["chrome","Chrom","leg",210,.08,.62,"chrome"],  ["candyr","Candy Rot","leg",350,1,.4,"candy"],
+  ["candyb","Candy Blau","leg",222,1,.4,"candy"], ["matte","Matt Schwarz","leg",230,.05,.12,"matte"],
+  ["chamel","Chamäleon","leg",280,.78,.45,"chameleon"],
+];
+const PAINT_BY_ID = Object.fromEntries(PAINT_LIB.map(p => [p[0], p]));
+function hsl2rgb(h, s, l){
+  h = ((h % 360) + 360) % 360 / 360;
+  const q = l < .5 ? l*(1+s) : l + s - l*s, p = 2*l - q;
+  const f = t => { t = (t + 1) % 1; return t < 1/6 ? p + (q-p)*6*t : t < .5 ? q : t < 2/3 ? p + (q-p)*(2/3 - t)*6 : p; };
+  return [f(h + 1/3)*255, f(h)*255, f(h - 1/3)*255];
+}
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+// sh = Helligkeit des Foto-Pixels relativ zum Lack-Mittel (1 = normal, >1 Glanz, <1 Schatten)
+function paintPx(P, sh, n){
+  let h = P[3]; const s = P[4], L = P[5], fin = P[6];
+  let k = sh;
+  if (fin === "metal") k = 1 + (sh-1)*1.4 + n*0.05;
+  else if (fin === "matte") k = 1 + (sh-1)*0.45;
+  else if (fin === "chrome") k = 1 + (sh-1)*2.4 + n*0.03;
+  if (fin === "pearl") h += (sh - 0.9)*45;
+  if (fin === "chameleon") h += (sh - 0.9)*170;
+  let lo = fin === "candy" ? L*Math.pow(Math.max(0.2, k), 1.6) : L*(0.30 + 0.70*Math.min(k, 1.25));
+  if (k > 1 && fin !== "matte") lo += (k - 1)*(fin === "chrome" ? 1.2 : 0.75)*(1 - L);
+  if (L < 0.2) lo += 0.06*k;                                   // Schwarz behält seine Form
+  const ss = s * (1 - Math.max(0, k - 1.05)*0.9);
+  return hsl2rgb(h, clamp01(ss), clamp01(lo));
+}
+const decalCol = id => { const P = PAINT_BY_ID[id] || PAINT_BY_ID.white; return `hsl(${P[3]} ${P[4]*100}% ${P[5]*100}%)`; };
+// Streifen: 0 aus · 1 Seitenstreifen · 2 Le-Mans-Linien · 3 Hockeystick · 4 Flammen
+const STRIPES = ["Ohne","Seitenstreifen","Le-Mans-Linien","Hockeystick","Flammen"];
+// Sticker (Set-Freischaltung per Auto-Level, rpg.js STYLE_PLAN sticker1–4) — eigene Motive, keine Marken
+const STICKERS = [
+  { id:"num",    n:"Startnummer", set:1 }, { id:"bolt",  n:"Blitz",       set:1 }, { id:"flag",  n:"Zielflagge",  set:1 },
+  { id:"nitrox", n:"NITRO X",     set:1 }, { id:"kanji", n:"速 Speed",     set:2 }, { id:"leaf",  n:"Anfänger-Blatt", set:2 },
+  { id:"kai",    n:"TURBO KAI",   set:2 }, { id:"star",  n:"Stern",       set:2 }, { id:"skull", n:"Totenkopf",   set:3 },
+  { id:"crown",  n:"Krone",       set:3 }, { id:"rl",    n:"REDLINE",     set:3 }, { id:"elite", n:"ELITE",       set:4 },
+  { id:"sixty",  n:"60 Gold",     set:4 },
+];
+function drawSticker(c, id, x, y, sz){
+  c.save(); c.translate(x, y); c.lineJoin = "round";
+  const txt = (t, col, bg, w = 1.9) => { c.font = `italic 900 ${sz*0.36}px system-ui,sans-serif`; c.textAlign = "center"; c.textBaseline = "middle";
+    const tw = c.measureText(t).width; c.fillStyle = bg; c.fillRect(-tw/2 - sz*0.1, -sz*0.24, tw + sz*0.2, sz*0.48);
+    c.fillStyle = col; c.fillText(t, 0, sz*0.02); };
+  if (id === "num"){ c.fillStyle = "#fff"; c.beginPath(); c.arc(0, 0, sz*0.42, 0, 7); c.fill(); c.fillStyle = "#111";
+    c.font = `900 ${sz*0.52}px system-ui,sans-serif`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("7", 0, sz*0.03); }
+  else if (id === "bolt"){ c.fillStyle = "#FFD21F"; c.strokeStyle = "#111"; c.lineWidth = sz*0.05; c.beginPath();
+    [[-.1,-.5],[.25,-.5],[.05,-.08],[.3,-.08],[-.2,.5],[-.02,.04],[-.28,.04]].forEach(([a,b],i)=> i ? c.lineTo(a*sz,b*sz) : c.moveTo(a*sz,b*sz)); c.closePath(); c.stroke(); c.fill(); }
+  else if (id === "flag"){ const n = 5, w = sz*0.8/n; for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++){ c.fillStyle = (i+j)%2 ? "#111" : "#fff"; c.fillRect(-sz*0.4 + i*w, -sz*0.24 + j*w, w, w); } }
+  else if (id === "nitrox") txt("NITRO X", "#fff", "#1E5BFF");
+  else if (id === "kai") txt("TURBO KAI", "#111", "#FFD21F");
+  else if (id === "rl") txt("REDLINE", "#fff", "#E01B2F");
+  else if (id === "elite") txt("ELITE", "#2a1a00", "#FFC93C");
+  else if (id === "kanji"){ c.font = `900 ${sz*0.7}px "Hiragino Sans","Noto Sans JP",sans-serif`; c.textAlign = "center"; c.textBaseline = "middle";
+    c.lineWidth = sz*0.08; c.strokeStyle = "#111"; c.strokeText("速", 0, 0); c.fillStyle = "#fff"; c.fillText("速", 0, 0); }
+  else if (id === "leaf"){ c.fillStyle = "#FFD21F"; c.beginPath(); c.moveTo(0, sz*0.42); c.quadraticCurveTo(-sz*0.42, 0, -sz*0.18, -sz*0.38); c.lineTo(0, -sz*0.14); c.closePath(); c.fill();
+    c.fillStyle = "#1FAE4B"; c.beginPath(); c.moveTo(0, sz*0.42); c.quadraticCurveTo(sz*0.42, 0, sz*0.18, -sz*0.38); c.lineTo(0, -sz*0.14); c.closePath(); c.fill(); }
+  else if (id === "star"){ c.fillStyle = "#fff"; c.strokeStyle = "#1E3FAE"; c.lineWidth = sz*0.06; c.beginPath();
+    for (let i = 0; i < 10; i++){ const r = i % 2 ? sz*0.18 : sz*0.42, a = -Math.PI/2 + i*Math.PI/5; c.lineTo(Math.cos(a)*r, Math.sin(a)*r); } c.closePath(); c.stroke(); c.fill(); }
+  else if (id === "skull"){ c.fillStyle = "#f2f2f2"; c.beginPath(); c.arc(0, -sz*0.06, sz*0.3, 0, 7); c.fill(); c.fillRect(-sz*0.16, sz*0.12, sz*0.32, sz*0.2);
+    c.fillStyle = "#111"; [[-.12,-.06],[.12,-.06]].forEach(([a,b]) => { c.beginPath(); c.arc(a*sz, b*sz, sz*0.08, 0, 7); c.fill(); }); c.fillRect(-sz*0.02, sz*0.05, sz*0.04, sz*0.07); }
+  else if (id === "crown"){ c.fillStyle = "#FFC93C"; c.strokeStyle = "#5a3a00"; c.lineWidth = sz*0.04; c.beginPath();
+    [[-.38,.25],[-.38,-.2],[-.18,0],[0,-.32],[.18,0],[.38,-.2],[.38,.25]].forEach(([a,b],i)=> i ? c.lineTo(a*sz,b*sz) : c.moveTo(a*sz,b*sz)); c.closePath(); c.fill(); c.stroke(); }
+  else if (id === "sixty"){ c.fillStyle = "#FFC93C"; c.beginPath(); c.arc(0, 0, sz*0.42, 0, 7); c.fill(); c.strokeStyle = "#5a3a00"; c.lineWidth = sz*0.05; c.stroke();
+    c.fillStyle = "#3a2600"; c.font = `italic 900 ${sz*0.46}px system-ui,sans-serif`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("60", 0, sz*0.03); }
+  c.restore();
+}
+// Dekor-Maske im Arbeitsraum (Quell-Pixel × fz): Streifen + Sticker, nur auf Lack angewendet
+function decalMask(M, fz, st, SW, SH, m = {}){
+  const stripe = st.stripe | 0, stk = (st.stk || []).filter(Boolean);
+  if (!M || !M.top || (!stripe && !stk.length)) return null;
+  const cv = document.createElement("canvas"); cv.width = SW; cv.height = SH;
+  const c = cv.getContext("2d", { willReadFrequently: true });
+  c.scale(fz, fz);
+  const med = a => { const v = a.filter(x => x >= 0).sort((p, q) => p - q); return v.length ? v[v.length >> 1] : -1; };
+  const w = M.noseX - M.rearX;
+  // Gürtellinie/Schweller aus den (zuverlässig vermessenen) Rädern — die Kontur selbst
+  // wird von Antennen, Spoilern und Bodenschatten-Resten verfälscht
+  const wy = (M.wheels[0].y + M.wheels[1].y)/2, wr = (M.wheels[0].r + M.wheels[1].r)/2;
+  const belt = wy - 1.55*wr;
+  const sill = m.sill ?? Math.max(wy - 0.4*wr, Math.min(wy + 0.4*wr, M.sillBot > 0 ? M.sillBot : wy)), H = sill - belt;   // m.sill: Foto mit Schatten-Resten
+  const [rw, fw] = M.wheels;
+  if (stripe){
+    c.fillStyle = decalCol(st.stripeCol || "white");
+    const x0 = M.rearX, x1 = M.noseX;
+    if (stripe === 1) c.fillRect(x0, belt + H*0.30, x1 - x0, H*0.18);
+    if (stripe === 2){ c.fillRect(x0, belt + H*0.28, x1 - x0, H*0.06); c.fillRect(x0, belt + H*0.40, x1 - x0, H*0.06); }
+    if (stripe === 3){ const xa = fw.x + fw.r*0.9, xb = (rw.x + fw.x)/2, y = belt + H*0.42, t = H*0.17;
+      c.beginPath(); c.moveTo(xa, y); c.lineTo(xb, y); c.quadraticCurveTo(xb - H*0.35, y, xb - H*0.45, y - H*0.45);
+      c.lineTo(xb - H*0.45 - t, y - H*0.45); c.quadraticCurveTo(xb - H*0.38 - t, y + t, xb, y + t); c.lineTo(xa, y + t); c.closePath(); c.fill(); }
+    if (stripe === 4){ const P = PAINT_BY_ID[st.stripeCol] ?? PAINT_BY_ID.orange;
+      const g = c.createLinearGradient(fw.x, 0, rw.x, 0); g.addColorStop(0, "#FFD21F"); g.addColorStop(0.35, decalCol(P[0])); g.addColorStop(1, "rgba(200,20,10,0)");
+      c.fillStyle = g; const yb = belt + H*0.62, n = 6;
+      for (let i = 0; i < n; i++){ const yy = belt + H*(0.22 + i*0.085), len = (fw.x - rw.x)*(0.45 + 0.5*Math.sin(i*1.7 + 1)**2);
+        c.beginPath(); c.moveTo(fw.x + fw.r*0.4, yy + H*0.05); c.quadraticCurveTo(fw.x - len*0.5, yy - H*0.12, fw.x - len, yy - H*0.02);
+        c.quadraticCurveTo(fw.x - len*0.55, yy + H*0.08, fw.x + fw.r*0.2, Math.min(yb, yy + H*0.14)); c.closePath(); c.fill(); } }
+  }
+  // Drei Plätze auf der Seitenwand zwischen den Rädern (dort ist bei jedem Auto Blech)
+  const span = (fw.x - fw.r) - (rw.x + rw.r);
+  const slots = [
+    [(rw.x + fw.x)/2, belt + H*0.55, H*0.46],                               // Tür (gross)
+    [rw.x + rw.r + span*0.14, belt + H*0.5, Math.min(H*0.34, span*0.22)],   // hinten
+    [fw.x - fw.r - span*0.14, belt + H*0.5, Math.min(H*0.32, span*0.2)],    // vorne
+  ];
+  (st.stk || []).forEach((id, i) => { if (id && slots[i] && slots[i][2] > 8) drawSticker(c, id, ...slots[i]); });
+  return c.getImageData(0, 0, SW, SH).data;
+}
+
 async function spriteCanvas(key, st){
   let m = (window.CAR_SPRITES || {})[key];
   let kitFoto = false;
@@ -1230,22 +1370,41 @@ async function spriteCanvas(key, st){
   // iOS/WebKit NICHT unterstützt — deshalb blieb der Lack am Handy immer rot,
   // während Neon (hsla-fillStyle) brav die Farbe wechselte.
   const D = sd.data;
-  const rad = (hue||0)*Math.PI/180, co = Math.cos(rad), si = Math.sin(rad);
+  const P = st.paint ? PAINT_BY_ID[st.paint] : null;          // Season 2: Lack-Bibliothek
+  const DM = decalMask(M, fz, st, SW, SH, m);
+  const rad = (P ? 0 : hue||0)*Math.PI/180, co = Math.cos(rad), si = Math.sin(rad);
   const H = [
     0.213+co*0.787-si*0.213, 0.715-co*0.715-si*0.715, 0.072-co*0.072+si*0.928,
     0.213-co*0.213+si*0.143, 0.715+co*0.285+si*0.140, 0.072-co*0.072-si*0.283,
     0.213-co*0.213-si*0.787, 0.715-co*0.715+si*0.715, 0.072+co*0.928+si*0.072,
   ];
+  const isPaint = (R, G, B) => R > 40 && R > G*1.45 && R > B*1.45;
+  // Mittlere Lack-Helligkeit des Fotos (Referenz für Licht/Schatten)
+  let refR = 170;
+  if (P || DM){ let sum = 0, n = 0; for (let i = 0; i < D.length; i += 16){ if (D[i+3] > 60 && isPaint(D[i], D[i+1], D[i+2])){ sum += D[i]; n++; } } if (n) refR = sum / n; }
   for (let i = 0; i < D.length; i += 4){
     const a = D[i+3];
     if (!a) continue;
     if (a < 60){ D[i+3] = 0; continue; }
     let R = D[i], G = D[i+1], B = D[i+2];
-    if (Math.max(R,G,B) - Math.min(R,G,B) > 16 && !(R > 40 && R > G*1.45 && R > B*1.45)){
+    const paint = isPaint(R, G, B);
+    if (paint && (P || (DM && DM[i+3]))){
+      const sh = R / refR, nz = ((i * 2654435761) >>> 0) / 4294967296 - 0.5;
+      let o;
+      if (P) o = paintPx(P, sh, nz);
+      else { const r2 = H[0]*R + H[1]*G + H[2]*B, g2 = H[3]*R + H[4]*G + H[5]*B, b2 = H[6]*R + H[7]*G + H[8]*B; o = [r2, g2, b2]; }
+      if (DM && DM[i+3]){                                     // Streifen/Sticker mit Foto-Schattierung
+        const m = DM[i+3]/255, k = Math.max(0.55, Math.min(1.12, sh));
+        o = [o[0] + (DM[i]*k - o[0])*m, o[1] + (DM[i+1]*k - o[1])*m, o[2] + (DM[i+2]*k - o[2])*m];
+      }
+      D[i] = o[0] < 0 ? 0 : o[0] > 255 ? 255 : o[0]; D[i+1] = o[1] < 0 ? 0 : o[1] > 255 ? 255 : o[1]; D[i+2] = o[2] < 0 ? 0 : o[2] > 255 ? 255 : o[2];
+      continue;
+    }
+    if (Math.max(R,G,B) - Math.min(R,G,B) > 16 && !paint){
       const l = 0.299*R + 0.587*G + 0.114*B;
       R += (l-R)*0.75; G += (l-G)*0.75; B += (l-B)*0.75;
     }
-    if (hue){
+    if (hue && !P){
       const r2 = H[0]*R + H[1]*G + H[2]*B;
       const g2 = H[3]*R + H[4]*G + H[5]*B;
       const b2 = H[6]*R + H[7]*G + H[8]*B;

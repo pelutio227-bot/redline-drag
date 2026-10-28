@@ -32,8 +32,9 @@ const Duo = (() => {
   function myName(){ const n = S().name; return n && n !== "RACER" ? n : (host ? "FAHRER 1" : "FAHRER 2"); }
   function myState(ready = false){
     const k = S().current, cs = S().cars[k];
+    // v 2 (Season 2): Auto-Level + Talente gehören zur Physik → beide Geräte rechnen identisch
     return { id: myId, host, name: myName(), car: k, up: cs.up, tune: cs.tune, style: cs.style,
-             ready, synced: host || synced, v: 1 };
+             lvl: cs.lvl ?? 1, tal: cs.tal ?? {}, ready, synced: host || synced, v: 2 };
   }
   const send = (event, payload) => ch?.send({ type:"broadcast", event, payload });
   const sendState = () => { if (me) send("state", me); };
@@ -136,7 +137,7 @@ const Duo = (() => {
     me = myState(false); sendState(); render();
   }
   function maybeGo(){
-    if (!host || phase !== "lobby" || !me?.ready || !rival?.ready || !rival.synced) return;
+    if (!host || phase !== "lobby" || !me?.ready || !rival?.ready || !rival.synced || rival.v !== 2) return;
     const payload = {
       rid: Math.random().toString(36).slice(2, 10),
       startAt: Date.now() + 3600,
@@ -162,7 +163,7 @@ const Duo = (() => {
     window.NativeBridge?.haptic?.("heavy");
     Race.start({
       carKey: mine.car, carState: { up: mine.up, tune: mine.tune, style: mine.style },
-      opp: { name: his.name, car: his.car, up: his.up, tune: his.tune, style: his.style },
+      opp: { name: his.name, car: his.car, up: his.up, tune: his.tune, style: his.style, tal: his.tal, lvl: his.lvl },
       duo: { startAt, greenAt: p.greenAt, onInput: pushInput, onLocalFinish: r => setTimeout(() => onLocalFinish(r), 0) },
       onEvent: UI.raceEvent, onDone: () => {},
     });
@@ -202,7 +203,7 @@ const Duo = (() => {
     if (!go || p.rid !== go.rid || p.id !== rival?.id || rivalFinal) return;
     lastSeen = Date.now();
     // Lauf des Gegners mit SEINEM Setup nachfahren — die Replay-Zeit zählt
-    const spec = buildSpec(go.his.car, { up: go.his.up, tune: go.his.tune });
+    const spec = buildSpec(go.his.car, { up: go.his.up, tune: go.his.tune, tal: go.his.tal, lvl: go.his.lvl });
     const rep = replayRun(spec, go.greenAt, p.events || []);
     if (rep.et == null || Math.abs(rep.et - p.et) > 0.005)
       console.warn("[duo] Replay weicht ab", { gemeldet: p.et, replay: rep.et });
@@ -342,12 +343,15 @@ const Duo = (() => {
     if (phase === "lobby" || phase === "result"){
       const r = rival;
       const mineEt = etOf(me.car, S().cars[me.car]);
-      const hisEt = r ? etOf(r.car, { up: r.up, tune: r.tune }) : "—";
+      const hisEt = r ? etOf(r.car, { up: r.up, tune: r.tune, tal: r.tal, lvl: r.lvl }) : "—";
+      const lv = (n, k) => `<b class="lvb sm r-${carRarity(k)}"><i>${n ?? 1}</i></b>`;
+      const old = r && r.v !== 2;
       el.innerHTML = card(`<div class="duelgrid">
-          <div class="duelcard"><b>${esc(me.name)} (Du)</b><span>${esc(CAR_DEFS[me.car].name)} · ≈ ${mineEt}s</span><img id="duoMeImg" alt=""></div>
+          <div class="duelcard">${lv(me.lvl, me.car)}<b>${esc(me.name)} (Du)</b><span>${esc(CAR_DEFS[me.car].name)} · ≈ ${mineEt}s</span><img id="duoMeImg" alt=""></div>
           <div class="duelvs">VS</div>
-          <div class="duelcard"><b>${esc(r?.name ?? "…")}</b><span>${r ? esc(CAR_DEFS[r.car]?.name ?? "") + " · ≈ " + hisEt + "s" : ""}${r?.ready ? ' · <i style="color:var(--grn)">BEREIT ✓</i>' : r ? " · wählt…" : ""}</span><img id="duoRivImg" alt=""></div>
+          <div class="duelcard">${r ? lv(r.lvl, r.car) : ""}<b>${esc(r?.name ?? "…")}</b><span>${r ? esc(CAR_DEFS[r.car]?.name ?? "") + " · ≈ " + hisEt + "s" : ""}${r?.ready ? ' · <i style="color:var(--grn)">BEREIT ✓</i>' : r ? " · wählt…" : ""}</span><img id="duoRivImg" alt=""></div>
         </div>`)
+        + (old ? card(`<p class="duostat" style="color:var(--amb)">⚠️ ${esc(r.name)} hat eine ältere Redline-Version. Für faire Duelle müssen beide auf die neue Version (Season 2) aktualisieren.</p>`) : "")
         + card(`<h3>Dein Auto</h3><div class="duocars" id="duoCars"></div>`)
         + `<button class="mbtn primary readybtn ${me.ready ? "" : "armed"}" id="duoReady">${me.ready ? `BEREIT ✓ — warte auf ${esc(r?.name ?? "Gegner")}` : "BEREIT!"}</button>
            <p class="duostat">Sobald beide bereit sind, startet der Countdown auf beiden iPhones gleichzeitig.</p>`;

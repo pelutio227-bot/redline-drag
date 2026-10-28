@@ -2,46 +2,41 @@
 // Replay (ohne DOM). Läuft im Browser (globale Funktionen) und in Node
 // (tools/balance-sim.mjs lädt cars.js + sim.js per vm) → Balancing ist testbar.
 //
-// Grundsätze (22.10.2026):
-// - Rivalen haben eine FESTE Stärke (Ziel-ET pro Rivale, aus der Balancing-
-//   Simulation) — NICHT mehr ans Spieler-Setup angeglichen. Darum ist jedes
-//   Upgrade im Rennen spürbar: schnelleres Auto = sichtbar mehr Vorsprung.
+// Grundsätze (Season 2, 28.10.2026):
+// - Gegner haben eine FESTE Stärke aus Level × Seltenheit (rpg.js refEt/RARITY) —
+//   NICHT ans Spieler-Setup angeglichen: jedes Teil und jedes Talent ist spürbar.
 // - Physik in festen Ticks (SIM_DT). Eingaben werden pro Tick abgetastet →
-//   gleiche Eingaben + gleiches Setup = exakt gleiche Zeit (iPhone Duo).
+//   gleiche Eingaben + gleiches Setup = exakt gleiche Zeit (Duell).
 
 const QMILE = 402.336, HMILE = 804.672;
 const SIM_DT = 1/120;
 
-// ── Upgrades (eine Quelle für Garage, Ökonomie und Balancing-Test) ──
-const UPGRADES = [
-  { k:"engine", n:"Motor", d:"+15% Leistung pro Stufe", max:3, cost:[900,2600,6200] },
-  { k:"turbo",  n:"Turbolader", d:"Stage 1 +28% · Stage 2 +40% · Stage 3 +50% Leistung", max:3, cost:[3800,7600,12800] },
-  { k:"tires",  n:"Slicks", d:"Mehr Grip beim Launch", max:2, cost:[1200,3200] },
-  { k:"trans",  n:"Renngetriebe", d:"Schnellere Schaltzeiten", max:2, cost:[1500,3600] },
-  { k:"weight", n:"Leichtbau", d:"−70 kg pro Stufe", max:2, cost:[2200,4800] },
-  { k:"nos",    n:"NOS-Flasche", d:"+1.6s NOS pro Stufe (0.9s serienmässig)", max:2, cost:[1100,2400] },
-];
-// Turbo-Stages (28.10.): Stufe 1 wie früher +28 %, danach grösserer Lader
-const TURBO_PM = [0, 0.28, 0.40, 0.50];
-// Teile kosten relativ zum Auto-Wert: am Starter billig und spürbar.
-const upgMul = k => Math.min(5, Math.max(0.55, 0.55 + (CAR_DEFS[k].price || 0)/50000));
-const upgCost = (u, lvl, k) => Math.round(u.cost[lvl] * upgMul(k) / 10) * 10;
+// Upgrades, Talente, Klassen, Normalisierung: js/rpg.js (Season 2, 28.10.2026)
 
 function defaultTune(def){
   return { gears: def.gears.slice(), final: def.final, launchRpm: Math.round(def.redline*0.5) };
 }
 
+// Setup → Physik-Spec. Teile-Stufen (rpg.js UPGRADES), Talente + Klassen-Fähigkeit (talentFx)
+// und die Auto-Normalisierung (CAR_NORM) fliessen hier ein — für Spieler, KI und Duell-Replay gleich.
 function buildSpec(carKey, carState, dist = QMILE){
   const def = CAR_DEFS[carKey];
-  const up = carState.up, tune = carState.tune;
-  const powerMul = 1 + up.engine*0.15 + TURBO_PM[Math.min(3, up.turbo|0)];
-  const mass = def.mass - up.weight*70;
-  const mu = (1.02 + up.tires*0.16) * (def.grip ?? 1);
-  const shiftTime = 0.27 - up.trans*0.05;
+  const up = carState.up || {}, tune = carState.tune || defaultTune(def);
+  const fx = talentFx(carKey, carState.tal);
+  // Normalisierung LV 1 → LV 60 (log-linear dazwischen): jedes Auto bleibt auf jedem Level konkurrenzfähig
+  const n0 = CAR_NORM[carKey] || [1, 1, 1, 1], tL = Math.max(0, Math.min(1, ((carState.lvl ?? 1) - 1) / 59));
+  const nrm = [n0[0] * Math.pow((n0[2] ?? n0[0]) / n0[0], tL), n0[1] * Math.pow((n0[3] ?? n0[1]) / n0[1], tL)];
+  const ts = Math.min(5, up.turbo|0);
+  const powerMul = nrm[0] * (1 + (up.engine|0)*0.06 + TURBO_PM[ts] + (fx.pow || 0));
+  const mass = def.mass - (up.weight|0)*32 + (fx.mass || 0);
+  const mu = nrm[1] * (1.02 + (up.tires|0)*0.065 + (fx.mu || 0)) * (def.grip ?? 1);
+  const shiftTime = (0.27 - (up.trans|0)*0.022) * (1 + (fx.shiftMul || 0));
   return {
     def, key: carKey, powerMul, mass, gripMass: def.mass, mu, shiftTime, dist,
     gears: tune.gears.slice(0, def.gears.length), final: tune.final,
-    nosMax: 0.9 + up.nos * 1.6, turbo: up.turbo, launchRpm: tune.launchRpm,
+    nosMax: 0.9 + (up.nos|0)*0.7 + (fx.nos || 0), turbo: TURBO_SND[ts], turboStage: ts, launchRpm: tune.launchRpm,
+    powHi: fx.powHi || 0, powLo: fx.powLo || 0, zoneMul: 1 + (fx.zoneMul || 0), perfMul: fx.perfMul || 0,
+    launchMul: fx.launchMul || 0, nosPow: fx.nosPow || 0, dragMul: 1 + (fx.drag || 0),
   };
 }
 
@@ -93,9 +88,11 @@ function stepRacer(r, dt, t){
   r.rpm += (rpmTarget - r.rpm) * Math.min(1, 18*dt);
   r.overRev = r.rpm >= def.redline && r.throttle > 0 && r.gear < sp.gears.length-1;
 
-  let torque = torqueAt(def, r.rpm) * sp.powerMul;
+  // Talente: Leistung im oberen (≥80 %) bzw. unteren (≤55 %) Drehzahlband
+  const band = r.rpm >= def.redline*0.8 ? (sp.powHi || 0) : r.rpm <= def.redline*0.55 ? (sp.powLo || 0) : 0;
+  let torque = torqueAt(def, r.rpm) * sp.powerMul * (1 + band);
   if (r.boost > 0){ torque *= (r.boostMul ?? 1.07); r.boost -= dt; }
-  if (r.nosOn && r.nos > 0){ torque *= 1.38; r.nos -= dt; if (r.nos<=0) r.nosOn=false; }
+  if (r.nosOn && r.nos > 0){ torque *= 1.38 + (sp.nosPow || 0); r.nos -= dt; if (r.nos<=0) r.nosOn=false; }
   if (r.shifting > 0){ torque *= 0.12; r.shifting -= dt; }
   if (r.rpm >= def.redline && roadRpm >= def.redline - 150) torque *= 0.22;   // Begrenzer (echte Fahr-Drehzahl)
   let F = (torque * g * 0.85) / def.wheelR * r.throttle;
@@ -113,7 +110,7 @@ function stepRacer(r, dt, t){
   // Überdrehter Start: kurzer Burnout (Strafe, die man spürt, aber kein K.o.)
   if (r.burn > 0){ r.burn -= dt; F *= 0.55; r.spin = Math.max(r.spin, 0.8); }
 
-  const drag = 0.40 * r.v * r.v, roll = 180;
+  const drag = 0.40 * (sp.dragMul ?? 1) * r.v * r.v, roll = 180;
   const a = (F - drag - roll) / sp.mass;
   r.aVis = a;
   r.v = Math.max(0, r.v + a*dt);
@@ -127,8 +124,8 @@ function stepRacer(r, dt, t){
 }
 
 // Grüne Schaltzone: Breite pro Auto (def.zone). Eng = schwerer, stärkerer Boost.
-function shiftZone(def){
-  const w = def.zone ?? 530;
+function shiftZone(def, zoneMul = 1){
+  const w = (def.zone ?? 530) * zoneMul;
   return [def.redline-120-w, def.redline-120];
 }
 function zoneBoostMul(def){ return 1 + 37/(def.zone ?? 530); }
@@ -137,7 +134,7 @@ function doShift(r){
   const sp = r.spec, def = sp.def;
   if (!r.launched || r.finished || r.shifting > 0) return null;
   if (r.gear >= sp.gears.length-1) return null;
-  const [z0,z1] = shiftZone(def);
+  const [z0,z1] = shiftZone(def, sp.zoneMul);
   let q;
   if (r.rpm >= z0 && r.rpm <= z1) q = "PERFECT";
   else if (r.rpm > z1) q = "SPÄT";
@@ -146,7 +143,7 @@ function doShift(r){
   r.lastShiftQ = q;
   r.gear++;
   r.shifting = sp.shiftTime * (q==="PERFECT" ? 0.7 : 1);
-  if (q === "PERFECT"){ r.boost = 0.6; r.boostMul = zoneBoostMul(def); r.perfects++; }
+  if (q === "PERFECT"){ r.boost = 0.6; r.boostMul = 1 + (zoneBoostMul(def) - 1) * (1 + (sp.perfMul || 0)); r.perfects++; }
   return q;
 }
 
@@ -155,7 +152,7 @@ function launchBoost(r, rt){
   const acc = Math.max(0, 1 - rt/0.25);
   if (acc <= 0) return;
   r.boost = 1.0;
-  r.boostMul = 1 + 0.12 * Math.pow(acc, 1.5);
+  r.boostMul = 1 + 0.12 * Math.pow(acc, 1.5) * (1 + (r.spec.launchMul || 0));
   r.launchQ = rt <= 0.08 ? "PERFECT START" : rt <= 0.18 ? "GUTER START" : null;
 }
 
@@ -164,9 +161,9 @@ function launchBoost(r, rt){
 function launchRacer(r, rt, t){
   r.launched = true; r.rt = rt;
   r.clutch = 0.6; r.clutchRpm = r.rpm;
-  const [z0, z1] = shiftZone(r.spec.def);
+  const [z0, z1] = shiftZone(r.spec.def, r.spec.zoneMul);
   if (r.rpm >= z0 && r.rpm <= z1){
-    r.boost = 1.0; r.boostMul = zoneBoostMul(r.spec.def);
+    r.boost = 1.0; r.boostMul = 1 + (zoneBoostMul(r.spec.def) - 1) * (1 + (r.spec.launchMul || 0));
     r.launchQ = "PERFECT LAUNCH"; r.launchAt = t;
   } else if (r.rpm > z1){ r.burn = 0.55; r.launchQ = null; }
   else if (rt < 0.25){ launchBoost(r, rt); r.launchAt = t; }
@@ -178,7 +175,7 @@ function simulateET(spec){
   const r = makeRacer(spec);
   r.launched = true; r.throttle = 1;
   r.rpm = spec.launchRpm; r.clutch = 0.6; r.clutchRpm = spec.launchRpm;
-  const [z0, z1] = shiftZone(spec.def), zm = (z0 + z1) / 2;
+  const [z0, z1] = shiftZone(spec.def, spec.zoneMul), zm = (z0 + z1) / 2;
   let t = 0;
   const dt = 1/60;
   while (!r.finished && t < 60){
@@ -204,7 +201,7 @@ function aiExpectedEt(spec, skill){
 }
 const _etCache = {};
 function carSimET(key, cs){
-  const k = key + JSON.stringify(cs.up) + cs.tune.final + "|" + cs.tune.launchRpm + "|" + cs.tune.gears.join(",");
+  const k = key + JSON.stringify(cs.up) + JSON.stringify(cs.tal || {}) + "|" + (cs.lvl ?? 1) + "|" + cs.tune.final + "|" + cs.tune.launchRpm + "|" + cs.tune.gears.join(",");
   return _etCache[k] ??= aiExpectedEt(buildSpec(key, cs), POT_SKILL);
 }
 
@@ -220,124 +217,22 @@ function calibrateSpec(spec, targetEt, skill = POT_SKILL){
   return spec;
 }
 
-// ── Ligen ─────────────────────────────────────────────────────────────────────
-// 6 Ligen × (4 Rivalen + Boss), danach Endlos-Liga. et = erwartete Rennzeit des Rivalen-
-// (¼ Meile, ab Grün inkl. Reaktion, bei seinem Können). Werte kalibriert mit
-// tools/balance-sim.mjs auf Ziel-Siegquoten des typischen Spielers: Liga 1
-// leicht, danach knapp (Rivale meist leicht vorne, schlagbar durch sauberes
-// Fahren + das nächste Upgrade).
-// skill 0..1 = Fahrkönnen der KI (Reaktion, Schaltpunkt, Launch).
-const LEAGUES = [
-  { name:"Parkplatz-Rookies", short:"ROOKIES", cls:"D", col:"#8E92A3", rivals:[
-    { name:"RUSTY", emoji:"🧢", car:"pico",   skill:0.15,  desc:"Fährt seit gestern. Ehrlich." },
-    { name:"NADIA", emoji:"🎧", car:"sakura", skill:0.25,  desc:"Hört beim Fahren Techno." },
-    { name:"JOEL",  emoji:"🧊", car:"grenz",  skill:0.30,  desc:"Eiskalt am Start." },
-    { name:"DARA",  emoji:"😎", car:"rota",   skill:0.35,  desc:"Ihr Wankel kreischt nachts." },
-    { name:"VITO",  emoji:"🕶", car:"samura", skill:0.45, desc:"Boss der Rookies. Sein 2JZ schläft nie.", boss:true },
-  ]},
-  { name:"Hafen-Nächte", short:"HAFEN", cls:"C", col:"#2BE05E", rivals:[
-    { name:"LUNA",   emoji:"🌙", car:"bliz",   skill:0.40, desc:"Rallye-Herz, Hafen-Seele." },
-    { name:"ORKAN",  emoji:"🌪", car:"temp",   skill:0.45, desc:"AWD. NOS. Kein Erbarmen." },
-    { name:"YUKI",   emoji:"❄️", car:"strat",  skill:0.50, desc:"Understatement auf vier Rädern." },
-    { name:"BRUTUS", emoji:"🦍", car:"apex",   skill:0.50, desc:"Drehmoment statt Diplomatie." },
-    { name:"KEIKO",  emoji:"⚡", car:"raiden", skill:0.55, desc:"Boss vom Hafen. Startet wie angenagelt.", boss:true },
-  ]},
-  { name:"Highway-Club", short:"HIGHWAY", cls:"B", col:"#6EA8FF", rivals:[
-    { name:"VEGA",    emoji:"🌟", car:"taifun", skill:0.55, desc:"Die Legende der Ostbrücke." },
-    { name:"GHOST",   emoji:"👻", car:"axis",   skill:0.55, desc:"Kommt aus dem Nichts." },
-    { name:"PANTHER", emoji:"🐆", car:"hammer", skill:0.60, desc:"Big-Block, kurze Zündschnur." },
-    { name:"SIRIUS",  emoji:"💫", car:"wago",   skill:0.60, desc:"Der schnellste Kombi der Stadt." },
-    { name:"MARKO",   emoji:"🐺", car:"kami",   skill:0.65, desc:"Boss des Highways. Der Wolf der Westrampe.", boss:true },
-  ]},
-  { name:"Bergstrassen-Elite", short:"ELITE", cls:"A", col:"#FF4D6A", rivals:[
-    { name:"NITRO-NELL", emoji:"💉", car:"vulkan", skill:0.60, desc:"Ihr V10 macht Feuerwerk." },
-    { name:"EL RAYO",    emoji:"⚡", car:"ryujin", skill:0.65, desc:"Blitz aus dem Süden." },
-    { name:"MIDNIGHT",   emoji:"🌑", car:"onyx",   skill:0.65, desc:"Fährt nur nachts." },
-    { name:"DUKE",       emoji:"🎩", car:"shini",  skill:0.70, desc:"Gentleman mit Drag-GTR." },
-    { name:"AKUMA",      emoji:"😈", car:"strip",  skill:0.70, desc:"Boss der Elite. Pro-Street, null Gnade.", boss:true },
-  ]},
-  { name:"Nacht-Meister", short:"MEISTER", cls:"A", col:"#FF4D6A", rivals:[
-    { name:"SANTOS",   emoji:"🌴", car:"bansh",   skill:0.70,  desc:"Sein Wankel schreit bis 10'600." },
-    { name:"VALKYRIE", emoji:"🛡", car:"golem",   skill:0.75,  desc:"V12 und eiserne Nerven." },
-    { name:"KAISER",   emoji:"👑", car:"venom",   skill:0.75, desc:"Regiert die Westrampe." },
-    { name:"MAMBA",    emoji:"🐍", car:"spectre", skill:0.80, desc:"Kaum zu fassen." },
-    { name:"KING",     emoji:"👑", car:"tsuna",   skill:0.80, desc:"Boss der Meister. Der King der Viertelmeile.", boss:true },
-  ]},
-  { name:"Legenden", short:"LEGENDEN", cls:"S", col:"#FFD34D", rivals:[
-    { name:"KRAKEN",    emoji:"🐙", car:"warlord", skill:0.80, desc:"1000 Nm Familienkutsche." },
-    { name:"DIABLO",    emoji:"🔱", car:"eklipse", skill:0.85, desc:"Sonnenfinsternis auf Rädern." },
-    { name:"FROSTBITE", emoji:"🧊", car:"phoenix", skill:0.85, desc:"Steigt aus jeder Asche." },
-    { name:"BARON",     emoji:"🎖", car:"mjoel",   skill:0.90, desc:"Hammer der Götter." },
-    { name:"OMEGA",     emoji:"♾",  car:"zenith",  skill:0.90, desc:"Die absolute Endstufe.", boss:true },
-  ]},
-];
-const LEAGUE_SIZE = 5;
-// Ziel-Sim-Zeiten der Rivalen — automatisch kalibriert von
-// `node tools/balance-sim.mjs 300 --calibrate` (Ziel-Siegquoten siehe dort).
-// <ET-TABELLE>
-const RIVAL_ET = [
-  [16.77,15.26,14.95,14.23,13.80],
-  [13.79,13.27,12.87,12.64,11.90],
-  [11.80,11.36,11.13,11.04,10.86],
-  [10.85,10.84,10.73,10.58,10.49],
-  [10.43,9.97,9.96,9.90,9.85],
-  [9.62,9.61,9.59,9.58,8.96],
-];
-// </ET-TABELLE>
-// Preisgeld: wächst pro Liga stark (neue Autos kosten 6.5k … 380k), +12% pro
-// Rivale, Boss ×1.6. Damit ist das nächste Auto immer in Reichweite.
-const LEAGUE_PRIZE = [400, 1300, 3200, 8500, 17000, 30000];
-LEAGUES.forEach((lg, L) => lg.rivals.forEach((r, i) => {
-  r.et = RIVAL_ET[L][i];
-  r.prize = Math.round(LEAGUE_PRIZE[L] * Math.pow(1.12, i) * (r.boss ? 1.6 : 1) / 50) * 50;
-}));
-const ENDLESS_NAMES = ["HAVOC","PIRANHA","SABLE","MAGNUS","VIXEN","COMET","GRIZZLY","NOVA","RAZOR","XENIA",
-  "SPIKE","MISTA J","THUNDER-T","LA BRUJA","OZZY","SEVEN","JUNO","RIKO","MIDAS","ZERO"];
-const ENDLESS_EMOJI = ["💥","🐟","🖤","🧲","🦊","☄️","🐻","✨","🪒","💎","🔥","🃏","⛈","🔮","🦴","7️⃣","🚀","🎯","🏆","⭕"];
-const ENDLESS_CARS = ["titan","reaper","basil","kirin","okami","zenith","mjoel","phoenix"];
-
-function leagueOf(tier){ return Math.min(LEAGUES.length, Math.floor(tier / LEAGUE_SIZE)); }
-
-// Rivale für einen Karriere-Platz (tier = 0,1,2,… über alle Ligen)
-function rivalFor(tier){
-  const L = Math.floor(tier / LEAGUE_SIZE), idx = tier % LEAGUE_SIZE;
-  if (L < LEAGUES.length){
-    const lg = LEAGUES[L], r = lg.rivals[idx];
-    return { ...r, tier, league:L, idx, leagueName: lg.name, boss: !!r.boss,
-             half: false,
-             hue: (tier*47 + 20) % 360 };
-  }
-  // Endlos-Liga: langsam schneller, Preisgeld gedeckelt
-  const n = tier - LEAGUES.length*LEAGUE_SIZE;
-  const boss = n % LEAGUE_SIZE === LEAGUE_SIZE-1;
-  return {
-    name: ENDLESS_NAMES[n % ENDLESS_NAMES.length] + (n >= ENDLESS_NAMES.length ? " " + (Math.floor(n/ENDLESS_NAMES.length)+1) : ""),
-    emoji: ENDLESS_EMOJI[n % ENDLESS_EMOJI.length], car: ENDLESS_CARS[n % ENDLESS_CARS.length],
-    et: Math.max(8.15, RIVAL_ET[5][4] - 0.03 - n*0.008), skill: 0.92,   // nähert sich dem Maximum (ZENITH voll ≈ 8.0s)
-    prize: Math.round(Math.min(60000, 42000 + n*600) * (boss ? 1.5 : 1) / 50) * 50,
-    desc: "Endlos-Liga · nur die Härtesten.", tier, league: LEAGUES.length, idx: n % LEAGUE_SIZE,
-    leagueName: "Endlos-Liga", boss, half: false, hue: (tier*47)%360,
-  };
-}
-
-// Rivalen-Auto: Serien-Setup, auf die Ziel-Zeit kalibriert. nerves = Anzahl
-// Niederlagen des Spielers gegen genau diesen Rivalen → Rivale wird pro
-// Niederlage 0.8% langsamer (max 2.4%): kein frustrierender Grind.
-const _rivalSpecCache = {};
-function rivalSpec(opp, nerves = 0){
-  const n = Math.min(3, nerves|0);
-  const key = opp.car + "|" + opp.et + "|" + n + "|" + (opp.half ? "h" : "q");
-  const def = CAR_DEFS[opp.car];
-  const cs = { up:{engine:0,turbo:0,tires:0,trans:0,weight:0,nos:1}, tune: defaultTune(def) };
+// ── Gegner aus dem Strassen-Radar (rpg.js makeEncounter) ────────────────────
+// Serien-Auto des Gegners, auf seine Ziel-Zeit (Level × Seltenheit) kalibriert.
+const _oppSpecCache = {};
+function oppSpec(enc, dist = QMILE){
+  const key = enc.car + "|" + enc.et.toFixed(3) + "|" + enc.skill;
+  const def = CAR_DEFS[enc.car];
+  const cs = { up:{ engine:0, turbo:0, tires:0, trans:0, weight:0, nos:1 }, tune: defaultTune(def) };
   cs.tune.launchRpm = Math.round((shiftZone(def)[0] + shiftZone(def)[1]) / 2);
-  const spec = buildSpec(opp.car, cs);
-  const c = _rivalSpecCache[key];
+  const spec = buildSpec(enc.car, cs, dist);
+  const c = _oppSpecCache[key];
   if (c){ spec.powerMul = c.powerMul; spec.mu = c.mu; }
   else {
-    calibrateSpec(spec, opp.et * (1 + 0.008*n), opp.skill);
-    _rivalSpecCache[key] = { powerMul: spec.powerMul, mu: spec.mu };
+    calibrateSpec(spec, enc.et, enc.skill);
+    _oppSpecCache[key] = { powerMul: spec.powerMul, mu: spec.mu };
   }
-  spec.dist = opp.half ? HMILE : QMILE;
+  spec.dist = dist;
   return spec;
 }
 
@@ -345,7 +240,7 @@ function rivalSpec(opp, nerves = 0){
 // skill steuert Reaktion, Launch (Nadel in der Zone?) und Schaltpunkt.
 function aiCreate(spec, skill, rnd = Math.random){
   const s = Math.max(0, Math.min(1, skill));
-  const [z0, z1] = shiftZone(spec.def), zm = (z0+z1)/2, zw = z1 - z0;
+  const [z0, z1] = shiftZone(spec.def, spec.zoneMul), zm = (z0+z1)/2, zw = z1 - z0;
   const gauss = () => { let u = 0; for (let i=0;i<4;i++) u += rnd(); return (u-2)/0.577; };
   return {
     racer: makeRacer(spec), skill: s, rnd,
@@ -361,7 +256,7 @@ function aiTick(ai, dt, t, green){
   const r = ai.racer, def = r.spec.def;
   if (!r.launched){
     r.staged = true; r.throttle = 1;
-    const [z0, z1] = shiftZone(def);
+    const [z0, z1] = shiftZone(def, r.spec.zoneMul);
     r.rpm = ai.launchInZone ? (z0+z1)/2 : z0 - 600 - ai.skill*0;
     if (green && t >= ai.reaction) launchRacer(r, ai.reaction, t);
   } else {
@@ -429,8 +324,8 @@ function replayRun(spec, greenAt, events, maxTicks = 120*90){
 
 // Node/vm-Export
 if (typeof globalThis !== "undefined"){
-  Object.assign(globalThis, { QMILE, HMILE, SIM_DT, UPGRADES, upgMul, upgCost, defaultTune, buildSpec,
+  Object.assign(globalThis, { QMILE, HMILE, SIM_DT, defaultTune, buildSpec,
     makeRacer, stepRacer, shiftZone, zoneBoostMul, doShift, launchBoost, launchRacer, simulateET, carSimET, aiExpectedEt, POT_SKILL,
-    calibrateSpec, LEAGUES, LEAGUE_SIZE, RIVAL_ET, LEAGUE_PRIZE, leagueOf, rivalFor, rivalSpec, aiCreate, aiTick,
+    calibrateSpec, oppSpec, aiCreate, aiTick,
     runCreate, runTick, runEt, replayRun });
 }
