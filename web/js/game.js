@@ -11,14 +11,19 @@ let raceDist = QMILE;   // pro Rennen gesetzt (Race.start), nur fürs Zeichnen
 // ── Rennen ───────────────────────────────────────────────────────────────────
 const Race = (() => {
   const cv = document.getElementById("cv");
-  const g = cv.getContext("2d");
+  let g = cv.getContext("2d", { alpha:false });   // let: Tacho-Cache zeichnet kurz in einen eigenen Kontext
   let W=0,H=0,dpr=1;
+  const BG = "#0A0A0E";
   function resize(){
     dpr = Math.min(2, window.devicePixelRatio||1);
     W = window.innerWidth; H = window.innerHeight;
     cv.width = W*dpr; cv.height = H*dpr;
     g.setTransform(dpr,0,0,dpr,0,0);
+    g.fillStyle = BG; g.fillRect(0,0,W,H);
+    gradCache.key = ""; tachoCache.key = "";
   }
+  // Performance (28.10.): statische Verläufe + Tacho-Zifferblatt nur bei Grössenänderung neu bauen
+  const gradCache = { key:"" }, tachoCache = { key:"", cv:null };
   window.addEventListener("resize", resize); resize();
 
   let st=null, raf=0, lastT=0, acc=0;
@@ -81,7 +86,7 @@ const Race = (() => {
     cancelAnimationFrame(raf); AudioSys.stopEngine(); AudioSys.skid(false); st=null;
     input.gas = false; input.nos = false; input.shiftReq = false;
   }
-  function clear(){ if (!st) g.clearRect(0, 0, W, H); }
+  function clear(){ if (!st){ g.fillStyle = BG; g.fillRect(0, 0, W, H); } }
 
   function physics(dt){
     const run = st.run, p = st.p;
@@ -204,11 +209,13 @@ const Race = (() => {
     g.fillStyle = rg;
     g.beginPath(); g.ellipse(cx2, cy2, w*0.68*pul, h*0.55*pul, 0, 0, 7); g.fill();
     g.strokeStyle = `rgba(${col},${0.5*pul})`; g.lineWidth = 2; g.lineCap = "round";
+    g.beginPath();
     for (let i=0;i<5;i++){
       const yy = y + h*(0.30 + 0.13*i) + Math.sin(t*40 + i*2)*2;
       const len = w*(0.36 + 0.16*Math.sin(t*30 + i*1.3));
-      g.beginPath(); g.moveTo(x - 4, yy); g.lineTo(x - 4 - len, yy + (i-2)*2.4); g.stroke();
+      g.moveTo(x - 4, yy); g.lineTo(x - 4 - len, yy + (i-2)*2.4);
     }
+    g.stroke();
     g.strokeStyle = `rgba(${col},${0.35*pul})`; g.lineWidth = 2.5;
     for (let i=0;i<3;i++){
       const xx = x + w*(0.26 + 0.22*i), yb = y + h*0.30;
@@ -233,7 +240,7 @@ const Race = (() => {
     const roadY = portrait ? H*0.55 : H*0.70;
     const laneH = Math.min(H*0.135, 120);
     const hz = roadY - laneH*1.7;
-    g.clearRect(0,0,W,H);
+    g.fillStyle = BG; g.fillRect(0,0,W,H);
     // Screenshake + Blitz abklingen lassen
     st.shake = (st.shake||0)*Math.exp(-5*dt);
     st.flash = (st.flash||0)*Math.exp(-4*dt);
@@ -243,9 +250,15 @@ const Race = (() => {
     if (st.shake > 0.01) g.translate((Math.random()-.5)*st.shake*16, (Math.random()-.5)*st.shake*11);
 
     // Himmel
-    const sky = g.createLinearGradient(0,0,0,hz);
-    sky.addColorStop(0,"#0B0D18"); sky.addColorStop(.7,"#141126"); sky.addColorStop(1,"#221636");
-    g.fillStyle = sky; g.fillRect(0,0,W,hz);
+    const gk = hz + "|" + roadY + "|" + laneH;
+    if (gradCache.key !== gk){
+      gradCache.key = gk;
+      gradCache.sky = g.createLinearGradient(0,0,0,hz);
+      gradCache.sky.addColorStop(0,"#0B0D18"); gradCache.sky.addColorStop(.7,"#141126"); gradCache.sky.addColorStop(1,"#221636");
+      gradCache.cone = g.createLinearGradient(0,hz-90,0,roadY+laneH);
+      gradCache.cone.addColorStop(0,"rgba(255,240,190,.10)"); gradCache.cone.addColorStop(1,"rgba(255,240,190,0)");
+    }
+    g.fillStyle = gradCache.sky; g.fillRect(0,0,W,hz);
     g.fillStyle = "rgba(255,45,64,.10)";
     g.beginPath(); g.arc(W*0.78, hz*0.40, 90, 0, 7); g.fill();
     // Skyline (langsame Parallax)
@@ -277,9 +290,7 @@ const Race = (() => {
       g.fillStyle = "#20232b"; g.fillRect(x, hz-92, 5, 92);
       g.fillRect(x-1, hz-96, 22, 5);
       g.fillStyle = "rgba(255,240,190,.9)"; g.fillRect(x+16, hz-95, 8, 4);
-      const lg = g.createLinearGradient(0,hz-90,0,roadY+laneH);
-      lg.addColorStop(0,"rgba(255,240,190,.10)"); lg.addColorStop(1,"rgba(255,240,190,0)");
-      g.fillStyle = lg;
+      g.fillStyle = gradCache.cone;
       g.beginPath(); g.moveTo(x+20, hz-90); g.lineTo(x-34, roadY+laneH); g.lineTo(x+80, roadY+laneH); g.closePath(); g.fill();
     }
     // Distanztafeln 100/200/300m + Start-Portal + FINISH
@@ -331,24 +342,27 @@ const Race = (() => {
       drawAura(px, py, carW, carH, p.nosOn ? "nos" : "boost");
     drawCar(st.pBody, st.pWheel, st.pAx, px, py, carW, carH, wheelR, st.pPitch, p.wheelA);
 
-    // Partikel
+    // Partikel — Mengen sind «pro 60-Hz-Frame» gedacht; k skaliert auf die echte Bildrate
+    // (ProMotion 120 Hz würde sonst doppelt so viele Wolken/Flammen erzeugen → Ruckeln)
+    const k60 = Math.min(3, dt*60);
+    const chance = n => Math.random() < n*k60;
     if (p.spin > 0.3 && p.launched && !p.finished){
-      puff(px+carW*(0.14+Math.random()*0.1), py+carH*0.92, "smoke");
-      puff(px+carW*(0.24+Math.random()*0.12), py+carH*0.90, "smoke");
-      if (p.spin > 0.6) puff(px+carW*0.05, py+carH*0.88, "smoke");
+      if (chance(0.7)) puff(px+carW*(0.14+Math.random()*0.1), py+carH*0.92, "smoke");
+      if (chance(0.7)) puff(px+carW*(0.24+Math.random()*0.12), py+carH*0.90, "smoke");
+      if (p.spin > 0.6 && chance(0.5)) puff(px+carW*0.05, py+carH*0.88, "smoke");
     }
     const exF = 1 + st.exh*0.55;                       // Auspuff-Kit → Flammengrösse
     const exX = px + st.exTipF*carW;                   // echte Heckkante des Autos
-    if (p.nosOn) puff(exX-4, py+carH*0.80, "flame", exF);
-    if (p.shifting > p.spec.shiftTime*0.6){
+    if (p.nosOn && chance(1)) puff(exX-4, py+carH*0.80, "flame", exF);
+    if (p.shifting > p.spec.shiftTime*0.6 && chance(1)){
       puff(exX-2, py+carH*0.80, "flame", exF);
       if (st.exh >= 1) puff(exX-6, py+carH*0.84, "flame", exF*0.8);  // Duplex: 2. Flamme
       if (st.exh >= 2 && Math.random()<.6) puff(exX-12, py+carH*0.80, "flame", exF); // Big Bore+
     }
-    if (p.overRev && Math.random() < 0.10 + st.exh*0.12)             // Begrenzer-Crackle
+    if (p.overRev && chance(0.10 + st.exh*0.12))                     // Begrenzer-Crackle
       puff(exX-4, py+carH*0.81, "flame", 0.6 + st.exh*0.4);
-    // Anti-Lag-/Backfire-Flammen (von physics() via st.antilag angestossen)
-    if (st.antilag > 0){
+    // Anti-Lag-/Backfire-Flammen (von physics() via st.antilag angestossen, 1 Stoss je 60-Hz-Frame)
+    if (st.antilag > 0 && chance(1)){
       st.antilag--;
       puff(exX-4 - Math.random()*8, py+carH*0.80, "flame", exF*(1.1 + Math.random()*0.6));
       if (st.exh >= 1 && Math.random() < .6) puff(exX-10, py+carH*0.84, "flame", exF*0.8);
@@ -361,46 +375,58 @@ const Race = (() => {
       g.fillStyle = ng;
       g.beginPath(); g.ellipse(px+carW/2, py+carH*0.92, carW*0.42, 8, 0, 0, 7); g.fill();
     }
-    for (let i=parts.length-1;i>=0;i--){
-      const q = parts[i]; q.life -= dt; if (q.life<=0){ parts.splice(i,1); continue; }
+    let wP = 0, nFlame = 0;
+    for (let i=0;i<parts.length;i++){
+      const q = parts[i]; q.life -= dt; if (q.life<=0) continue;
       q.x += q.vx*dt - p.v*pxPerM*dt*0.4; q.y += q.vy*dt;
-      if (q.kind==="smoke"){
-        // Comic-Wolke: Blumenkohl aus 3 Kreisen + heller Kern
-        const a = q.life*0.30, rr2 = q.r*(2.1-q.life);
-        g.fillStyle = `rgba(222,226,234,${a})`;
-        g.beginPath(); g.arc(q.x-rr2*0.45, q.y-rr2*0.15, rr2*0.72, 0, 7); g.fill();
-        g.beginPath(); g.arc(q.x+rr2*0.45, q.y-0.2*rr2, rr2*0.78, 0, 7); g.fill();
-        g.beginPath(); g.arc(q.x, q.y+rr2*0.14, rr2, 0, 7); g.fill();
-        g.fillStyle = `rgba(255,255,255,${a*0.55})`;
-        g.beginPath(); g.arc(q.x-rr2*0.2, q.y-rr2*0.3, rr2*0.42, 0, 7); g.fill();
-      } else {
-        // Realistische Flamme: additiv, aussen blau-violett → orange → weissgelber Kern
-        g.save(); g.globalCompositeOperation = "lighter";
+      parts[wP++] = q;
+      if (q.kind!=="smoke"){ nFlame++; continue; }
+      // Comic-Wolke: Blumenkohl aus 3 Kreisen (ein Pfad) + heller Kern
+      const a = q.life*0.30, rr2 = q.r*(2.1-q.life);
+      g.fillStyle = `rgba(222,226,234,${a})`;
+      g.beginPath();
+      g.moveTo(q.x-rr2*0.45+rr2*0.72, q.y-rr2*0.15); g.arc(q.x-rr2*0.45, q.y-rr2*0.15, rr2*0.72, 0, 7);
+      g.moveTo(q.x+rr2*0.45+rr2*0.78, q.y-0.2*rr2);  g.arc(q.x+rr2*0.45, q.y-0.2*rr2, rr2*0.78, 0, 7);
+      g.moveTo(q.x+rr2, q.y+rr2*0.14);               g.arc(q.x, q.y+rr2*0.14, rr2, 0, 7);
+      g.fill();
+      g.fillStyle = `rgba(255,255,255,${a*0.55})`;
+      g.beginPath(); g.arc(q.x-rr2*0.2, q.y-rr2*0.3, rr2*0.42, 0, 7); g.fill();
+    }
+    parts.length = wP;
+    if (nFlame){
+      // Realistische Flamme: additiv, aussen blau-violett → orange → weissgelber Kern
+      g.save(); g.globalCompositeOperation = "lighter";
+      for (const q of parts){
+        if (q.kind==="smoke") continue;
         g.fillStyle = `rgba(80,70,255,${Math.min(1,q.life*2.4)})`;
         g.beginPath(); g.ellipse(q.x, q.y, q.r*1.9, q.r*0.58, 0, 0, 7); g.fill();
         g.fillStyle = `rgba(255,120,30,${Math.min(1,q.life*3)})`;
         g.beginPath(); g.ellipse(q.x+2, q.y, q.r*1.25, q.r*0.42, 0, 0, 7); g.fill();
         g.fillStyle = `rgba(255,235,160,${Math.min(1,q.life*3.6)})`;
         g.beginPath(); g.ellipse(q.x+4, q.y, q.r*0.68, q.r*0.26, 0, 0, 7); g.fill();
-        g.restore();
       }
+      g.restore();
     }
     // Speedlines
     if (p.v > 30){
       g.strokeStyle = `rgba(255,255,255,${Math.min(.30,(p.v-30)/180)})`;
       g.lineWidth = 1.5;
+      g.beginPath();
       for (let i=0;i<14;i++){
         const y = (i*79 + (camS*40)%79)%H;
         const x = W - (camS*pxPerM*3 + i*173)%W;
-        g.beginPath(); g.moveTo(x,y); g.lineTo(x - p.v*0.9, y); g.stroke();
+        g.moveTo(x,y); g.lineTo(x - p.v*0.9, y);
       }
+      g.stroke();
       // Wind-Streaks auf Autohöhe
       g.strokeStyle = `rgba(255,255,255,${Math.min(.4,(p.v-30)/140)})`;
       g.lineWidth = 2;
+      g.beginPath();
       for (let i=0;i<3;i++){
         const yy = py + carH*(0.25+0.25*i) + Math.sin(st.t*30+i*2)*2;
-        g.beginPath(); g.moveTo(px - 8, yy); g.lineTo(px - 8 - p.v*0.7 - i*12, yy); g.stroke();
+        g.moveTo(px - 8, yy); g.lineTo(px - 8 - p.v*0.7 - i*12, yy);
       }
+      g.stroke();
     }
     g.restore();
     drawTree();
@@ -464,7 +490,9 @@ const Race = (() => {
       g.fillRect(x, hz+6 + i*(laneH*2.8/14), 9, laneH*2.8/14);
     }
   }
+  const MAX_PARTS = 90;
   function puff(x,y,kind,scale=1){
+    if (parts.length >= MAX_PARTS) parts.shift();
     parts.push({x,y,kind, life: kind==="flame"?.16+scale*0.03:1.05,
       vx:(Math.random()-.5)*36-(kind==="smoke"?55:0), vy:-24-Math.random()*36,
       r: (kind==="flame"?6+Math.random()*8:12+Math.random()*18)*scale});
@@ -568,50 +596,72 @@ const Race = (() => {
     const a0 = Math.PI*0.78, a1 = Math.PI*2.22;
     const ang = f => a0 + (a1-a0)*Math.min(1, Math.max(0, f));
 
-    // Gehäuse (dunkles Zifferblatt) + Chrom-Lünette wie ein echtes Rundinstrument
-    const bg = g.createRadialGradient(cxx,cy,R*0.2, cxx,cy,R+18);
-    bg.addColorStop(0,"#181a20"); bg.addColorStop(.85,"#0d0e13"); bg.addColorStop(1,"#05060a");
-    g.fillStyle = bg; g.beginPath(); g.arc(cxx,cy,R+16,0,7); g.fill();
-    const bez = g.createLinearGradient(cxx-R,cy-R, cxx+R,cy+R);
-    bez.addColorStop(0,"#d9dde4"); bez.addColorStop(.42,"#7a828c");
-    bez.addColorStop(.58,"#3a3f47"); bez.addColorStop(1,"#181b21");
-    g.strokeStyle = bez; g.lineWidth = 5;
-    g.beginPath(); g.arc(cxx,cy,R+13,0,7); g.stroke();
-    g.strokeStyle = "rgba(0,0,0,.65)"; g.lineWidth = 2;
-    g.beginPath(); g.arc(cxx,cy,R+16,0,7); g.stroke();
-    g.strokeStyle = "rgba(255,255,255,.09)"; g.lineWidth = 1;
-    g.beginPath(); g.arc(cxx,cy,R+9,0,7); g.stroke();
-
-    // GRÜNE Schaltzone + rote Über-Redline-Zone
     const [z0,z1] = shiftZone(def);
-    g.lineWidth = 13; g.lineCap="butt";
-    g.strokeStyle = "rgba(43,224,94,.85)";
-    g.beginPath(); g.arc(cxx,cy,R-4, ang(z0/maxR), ang(z1/maxR)); g.stroke();
-    g.strokeStyle = "rgba(255,45,64,.9)";
-    g.beginPath(); g.arc(cxx,cy,R-4, ang(def.redline/maxR), a1); g.stroke();
+    // Zifferblatt (Gehäuse, Lünette, Zonen, Skala, Ziffern) ist statisch → einmal in ein
+    // Offscreen-Canvas zeichnen und pro Frame nur noch blitten (Text/Verläufe sind am iPhone teuer)
+    const pad = 20, bx = cxx - R - pad, by = cy - R - pad, bs = 2*(R + pad);
+    const fk = [W, H, dpr, R, cxx, cy, def.redline, z0, z1].join("|");
+    if (tachoCache.key !== fk){
+      tachoCache.key = fk;
+      const oc = tachoCache.cv || (tachoCache.cv = document.createElement("canvas"));
+      oc.width = Math.ceil(bs*dpr); oc.height = Math.ceil(bs*dpr);
+      const main = g;
+      g = oc.getContext("2d");
+      g.setTransform(dpr, 0, 0, dpr, -bx*dpr, -by*dpr);
+      try {
+      // Gehäuse (dunkles Zifferblatt) + Chrom-Lünette wie ein echtes Rundinstrument
+      const bg = g.createRadialGradient(cxx,cy,R*0.2, cxx,cy,R+18);
+      bg.addColorStop(0,"#181a20"); bg.addColorStop(.85,"#0d0e13"); bg.addColorStop(1,"#05060a");
+      g.fillStyle = bg; g.beginPath(); g.arc(cxx,cy,R+16,0,7); g.fill();
+      const bez = g.createLinearGradient(cxx-R,cy-R, cxx+R,cy+R);
+      bez.addColorStop(0,"#d9dde4"); bez.addColorStop(.42,"#7a828c");
+      bez.addColorStop(.58,"#3a3f47"); bez.addColorStop(1,"#181b21");
+      g.strokeStyle = bez; g.lineWidth = 5;
+      g.beginPath(); g.arc(cxx,cy,R+13,0,7); g.stroke();
+      g.strokeStyle = "rgba(0,0,0,.65)"; g.lineWidth = 2;
+      g.beginPath(); g.arc(cxx,cy,R+16,0,7); g.stroke();
+      g.strokeStyle = "rgba(255,255,255,.09)"; g.lineWidth = 1;
+      g.beginPath(); g.arc(cxx,cy,R+9,0,7); g.stroke();
 
-    // Ticks + Ziffern (pro 1000 rpm)
-    for (let k=0; k<=Math.floor(maxR/1000); k++){
-      const a = ang(k*1000/maxR);
-      const big = true;
-      const r1 = R-1, r2 = R-11;
-      g.strokeStyle = k*1000 >= def.redline ? "#FF2D40" : "rgba(255,255,255,.85)";
-      g.lineWidth = 2.5;
-      g.beginPath();
-      g.moveTo(cxx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
-      g.lineTo(cxx+Math.cos(a)*r2, cy+Math.sin(a)*r2); g.stroke();
-      g.fillStyle = k*1000 >= def.redline ? "#FF2D40" : "rgba(255,255,255,.82)";
-      g.font = `italic 800 ${Math.max(10,R*0.16)}px system-ui`; g.textAlign="center"; g.textBaseline="middle";
-      g.fillText(k, cxx+Math.cos(a)*(R-24), cy+Math.sin(a)*(R-24));
-      // Zwischenticks
-      if (k < Math.floor(maxR/1000)){
-        const ah = ang((k*1000+500)/maxR);
-        g.strokeStyle = "rgba(255,255,255,.3)"; g.lineWidth=1.5;
+      // GRÜNE Schaltzone + rote Über-Redline-Zone
+      g.lineWidth = 13; g.lineCap="butt";
+      g.strokeStyle = "rgba(43,224,94,.85)";
+      g.beginPath(); g.arc(cxx,cy,R-4, ang(z0/maxR), ang(z1/maxR)); g.stroke();
+      g.strokeStyle = "rgba(255,45,64,.9)";
+      g.beginPath(); g.arc(cxx,cy,R-4, ang(def.redline/maxR), a1); g.stroke();
+
+      // Ticks + Ziffern (pro 1000 rpm)
+      for (let k=0; k<=Math.floor(maxR/1000); k++){
+        const a = ang(k*1000/maxR);
+        const big = true;
+        const r1 = R-1, r2 = R-11;
+        g.strokeStyle = k*1000 >= def.redline ? "#FF2D40" : "rgba(255,255,255,.85)";
+        g.lineWidth = 2.5;
         g.beginPath();
-        g.moveTo(cxx+Math.cos(ah)*(R-2), cy+Math.sin(ah)*(R-2));
-        g.lineTo(cxx+Math.cos(ah)*(R-8), cy+Math.sin(ah)*(R-8)); g.stroke();
+        g.moveTo(cxx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
+        g.lineTo(cxx+Math.cos(a)*r2, cy+Math.sin(a)*r2); g.stroke();
+        g.fillStyle = k*1000 >= def.redline ? "#FF2D40" : "rgba(255,255,255,.82)";
+        g.font = `italic 800 ${Math.max(10,R*0.16)}px system-ui`; g.textAlign="center"; g.textBaseline="middle";
+        g.fillText(k, cxx+Math.cos(a)*(R-24), cy+Math.sin(a)*(R-24));
+        // Zwischenticks
+        if (k < Math.floor(maxR/1000)){
+          const ah = ang((k*1000+500)/maxR);
+          g.strokeStyle = "rgba(255,255,255,.3)"; g.lineWidth=1.5;
+          g.beginPath();
+          g.moveTo(cxx+Math.cos(ah)*(R-2), cy+Math.sin(ah)*(R-2));
+          g.lineTo(cxx+Math.cos(ah)*(R-8), cy+Math.sin(ah)*(R-8)); g.stroke();
+        }
       }
+      // "RPM ×1000" Beschriftung (echtes Instrument)
+      g.fillStyle = "rgba(255,255,255,.45)"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.font = `700 ${Math.max(8,R*0.11)}px system-ui`;
+      g.fillText("RPM", cxx, cy - R*0.40);
+      g.font = `700 ${Math.max(7,R*0.085)}px system-ui`;
+      g.fillText("×1000", cxx, cy - R*0.40 + R*0.14);
+      } finally { g = main; }
     }
+    g.drawImage(tachoCache.cv, bx, by, bs, bs);
+    g.textBaseline = "middle";   // wie bisher nach den Ziffern (Zone-Hinweise darunter)
     // ZU-SPÄT / Zone-Feedback
     const inZone = p.rpm>=z0 && p.rpm<=z1;
     if (!p.launched && st.phase !== "done"){
@@ -639,30 +689,24 @@ const Race = (() => {
     }
     // Nadel
     const na = ang(p.rpm/maxR);
-    g.save();
-    g.shadowColor = inZone ? "#2BE05E" : "#FF2D40"; g.shadowBlur = 8;
-    g.strokeStyle = "#FF4A3C"; g.lineWidth = 4; g.lineCap="round";
+    // Glow ohne shadowBlur (Blur-Schatten kosten in WebKit pro Frame einen Weichzeichner-Durchgang)
+    g.lineCap="round";
     g.beginPath(); g.moveTo(cxx - Math.cos(na)*R*0.14, cy - Math.sin(na)*R*0.14);
-    g.lineTo(cxx + Math.cos(na)*(R-14), cy + Math.sin(na)*(R-14)); g.stroke();
-    g.restore();
+    g.lineTo(cxx + Math.cos(na)*(R-14), cy + Math.sin(na)*(R-14));
+    g.strokeStyle = inZone ? "rgba(43,224,94,.35)" : "rgba(255,45,64,.35)"; g.lineWidth = 10; g.stroke();
+    g.strokeStyle = "#FF4A3C"; g.lineWidth = 4; g.stroke();
     g.fillStyle = "#22242c"; g.beginPath(); g.arc(cxx,cy,R*0.13,0,7); g.fill();
     g.strokeStyle = "#3c4049"; g.lineWidth=2; g.beginPath(); g.arc(cxx,cy,R*0.13,0,7); g.stroke();
 
-    // "RPM ×1000" Beschriftung (echtes Instrument)
-    g.fillStyle = "rgba(255,255,255,.45)"; g.textAlign = "center"; g.textBaseline = "middle";
-    g.font = `700 ${Math.max(8,R*0.11)}px system-ui`;
-    g.fillText("RPM", cxx, cy - R*0.40);
-    g.font = `700 ${Math.max(7,R*0.085)}px system-ui`;
-    g.fillText("×1000", cxx, cy - R*0.40 + R*0.14);
 
     // Gang im grünen LCD-Fenster (Oldschool-Tuner-Bordcomputer) + Speed digital
     const lw = R*0.44, lh = R*0.34, lx = cxx - lw/2, ly = cy + R*0.28;
     g.fillStyle = "#07130a"; rr(lx, ly, lw, lh, 4); g.fill();
     g.strokeStyle = "rgba(120,255,150,.3)"; g.lineWidth = 1; rr(lx, ly, lw, lh, 4); g.stroke();
-    g.fillStyle = "#39FF6A"; g.shadowColor = "#39FF6A"; g.shadowBlur = 6;
+    g.textAlign = "center"; g.textBaseline = "middle";
     g.font = `900 ${R*0.25}px ui-monospace,Menlo,monospace`;
+    g.fillStyle = "#39FF6A";
     g.fillText(p.launched ? String(p.gear+1) : "N", cxx, ly + lh/2 + 1);
-    g.shadowBlur = 0;
     g.textBaseline = "alphabetic";
     g.fillStyle = "#fff"; g.font = `800 ${Math.max(13,R*0.16)}px system-ui`;
     g.fillText(Math.round(p.v*3.6), cxx, cy + R*0.84);

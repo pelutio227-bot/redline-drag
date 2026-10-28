@@ -65,22 +65,24 @@ const AudioSys = (() => {
     const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 420; lp.Q.value = 1.1;
     const g = ctx.createGain(); g.gain.value = 0.0;
     // Turbo-Whistle (Bandpass-Noise), nur hörbar wenn turbo>0
-    const nbuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const nd = nbuf.getChannelData(0);
-    for (let i=0;i<nd.length;i++) nd[i] = Math.random()*2-1;
-    const noise = ctx.createBufferSource(); noise.buffer = nbuf; noise.loop = true;
+    const noiseSrc = ctx.createBufferSource(); noiseSrc.buffer = noise(); noiseSrc.loop = true;
     const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 14; bp.frequency.value = 1200;
     const tg = ctx.createGain(); tg.gain.value = 0;
     o1.connect(o1g).connect(sh); o2.connect(o2g).connect(sh);
     sh.connect(lp).connect(g).connect(master);
-    noise.connect(bp).connect(tg).connect(master);
-    o1.start(); o2.start(); noise.start();
-    eng = { o1, o2, noise, lp, g, tg, bp };
+    noiseSrc.connect(bp).connect(tg).connect(master);
+    o1.start(); o2.start(); noiseSrc.start();
+    eng = { o1, o2, noise: noiseSrc, lp, g, tg, bp };
   }
+  // Performance (28.10.): nicht jeden Frame (120 Hz) neue Automations-Events stapeln —
+  // ~30 Updates/s reichen (setTargetAtTime glättet ohnehin), WebKit-Audio-Thread bleibt frei
+  let engLast = 0;
   function engine(rpm, throttle, turbo){ // turbo 0..1 (Ladedruck)
     if (!eng) return;
-    const f = Math.max(24, rpm/60*2*prof.fm);    // Zündimpulse × Auto-Charakter
     const t = ctx.currentTime;
+    if (t - engLast < 0.033 && t >= engLast) return;
+    engLast = t;
+    const f = Math.max(24, rpm/60*2*prof.fm);    // Zündimpulse × Auto-Charakter
     eng.o1.frequency.setTargetAtTime(f, t, .02);
     eng.o2.frequency.setTargetAtTime(f/2, t, .02);
     eng.lp.frequency.setTargetAtTime((300 + throttle*1400 + rpm*0.09)*prof.lp, t, .03);
@@ -93,19 +95,32 @@ const AudioSys = (() => {
     // ALLE Quellen stoppen — die Turbo-Noise-Schleife lief sonst ewig weiter
     // und stapelte sich pro Rennen zu einem immer lauteren Dauer-Zischen.
     try { eng.o1.stop(); eng.o2.stop(); eng.noise.stop(); } catch {}
-    eng = null;
+    try { eng.g.disconnect(); eng.tg.disconnect(); } catch {}
+    eng = null; engLast = 0;
   }
 
   // ── One-Shots ──
+  // EIN gemeinsamer Rausch-Puffer (1 s) statt pro Knall neu in JS zu würfeln;
+  // das Abklingen macht jetzt eine Gain-Rampe (vorher im Puffer eingebacken)
+  let noiseBuf = null;
+  function noise(){
+    if (!noiseBuf){
+      noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+    }
+    return noiseBuf;
+  }
   function noiseBurst(dur, filterType, freq, q, gain){
     if (!ensure()) return;
-    const buf = ctx.createBuffer(1, ctx.sampleRate*dur, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
-    const src = ctx.createBufferSource(); src.buffer = buf;
+    const t0 = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = noise();
     const f = ctx.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; f.Q.value = q;
-    const g = ctx.createGain(); g.gain.value = gain;
-    src.connect(f).connect(g).connect(master); src.start();
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.linearRampToValueAtTime(0, t0 + dur);
+    src.connect(f).connect(g).connect(master);
+    src.start(t0, Math.random()*(1 - Math.min(dur, 0.9)), dur);
   }
   function shiftPop(exhaust){ // Backfire — grösser mit dickerem Auspuff
     noiseBurst(0.14 + exhaust*0.06, "lowpass", 300 + exhaust*180, 1, 0.5 + exhaust*0.22);
@@ -113,10 +128,7 @@ const AudioSys = (() => {
   function bov(){   // Blow-off «Ptss-ss-ss»: Pitch fällt + Ventil-Flattern — HD-Version
     if (!ensure()) return;
     const t0 = ctx.currentTime, dur = 0.5;
-    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate*dur), ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1;
-    const src = ctx.createBufferSource(); src.buffer = buf;
+    const src = ctx.createBufferSource(); src.buffer = noise();
     const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 2.4;
     bp.frequency.setValueAtTime(4200, t0);
     bp.frequency.exponentialRampToValueAtTime(1100, t0 + dur);
@@ -130,7 +142,7 @@ const AudioSys = (() => {
     const lg = ctx.createGain(); lg.gain.value = 0.35;
     lfo.connect(lg).connect(g.gain);
     src.connect(bp); bp.connect(hp); hp.connect(g); g.connect(master);
-    src.start(t0); lfo.start(t0); lfo.stop(t0 + dur);
+    src.start(t0, Math.random()*0.4, dur); lfo.start(t0); lfo.stop(t0 + dur);
   }
   // Anti-Lag-/Backfire-KNALL: tiefer Druckstoss + Knack-Transient
   function bang(big = 1){
@@ -148,10 +160,7 @@ const AudioSys = (() => {
   function skid(on){
     if (!ensure()) return;
     if (on && !skidG){
-      const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
-      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const src = ctx.createBufferSource(); src.buffer = noise(); src.loop = true;
       const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 900; f.Q.value = 1.4;
       const g = ctx.createGain(); g.gain.value = 0.20;
       src.connect(f).connect(g).connect(master); src.start();
