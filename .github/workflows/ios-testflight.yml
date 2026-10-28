@@ -89,13 +89,16 @@ jobs:
                 -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
                 -authenticationKeyID "$ASC_KEY_ID"
                 -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          # Version aus dem Xcode-Projekt (nach Store-Freigabe dort erhöhen, z.B. 1.0.1)
+          VER=$(grep -m1 -o 'MARKETING_VERSION = [0-9.]*' ios/App/App.xcodeproj/project.pbxproj | awk '{print $3}')
+          echo "Version: $VER"
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
             -destination 'generic/platform=iOS' -archivePath build/ios/App.xcarchive \
-            MARKETING_VERSION=1.0 CURRENT_PROJECT_VERSION="${{ steps.nr.outputs.build }}" \
+            MARKETING_VERSION="$VER" CURRENT_PROJECT_VERSION="${{ steps.nr.outputs.build }}" \
             "${AUTH[@]}" archive | tail -80
           xcodebuild -exportArchive -archivePath build/ios/App.xcarchive \
             -exportOptionsPlist ios/ExportOptions.plist -exportPath build/ios/export "${AUTH[@]}"
-          echo "Hochgeladen: 1.0 (${{ steps.nr.outputs.build }}) — erscheint nach 5–30 Min. in TestFlight"
+          echo "Hochgeladen: $VER (${{ steps.nr.outputs.build }}) — erscheint nach 5–30 Min. in TestFlight"
 
       - name: Compile-Check ohne Signierung
         if: ${{ !(env.WANT_UPLOAD == 'yes' && env.ASC_KEY_P8 != '' && env.ASC_ISSUER_ID != '') }}
