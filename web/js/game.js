@@ -358,7 +358,10 @@ const Race = (() => {
     // (ProMotion 120 Hz würde sonst doppelt so viele Wolken/Flammen erzeugen → Ruckeln)
     const k60 = Math.min(3, dt*60);
     const chance = n => Math.random() < n*k60;
-    if (p.spin > 0.3 && p.launched && !p.finished){
+    // Rauch (28.10.): grosse Alpha-Wolken sind auf dem iPhone der teuerste Teil (Füllrate) →
+    // max. 32 gleichzeitig, nur in den ersten 2.5 s nach dem Start, kürzer + kleiner
+    const smokeOk = nSmoke < 32 && st.green != null && st.t - st.green < 2.5;
+    if (p.spin > 0.3 && p.launched && !p.finished && smokeOk){
       if (chance(0.7)) puff(px+carW*(0.14+Math.random()*0.1), py+carH*0.92, "smoke");
       if (chance(0.7)) puff(px+carW*(0.24+Math.random()*0.12), py+carH*0.90, "smoke");
       if (p.spin > 0.6 && chance(0.5)) puff(px+carW*0.05, py+carH*0.88, "smoke");
@@ -387,14 +390,15 @@ const Race = (() => {
       g.fillStyle = ng;
       g.beginPath(); g.ellipse(px+carW/2, py+carH*0.92, carW*0.42, 8, 0, 0, 7); g.fill();
     }
-    let wP = 0, nFlame = 0;
+    let wP = 0, nFlame = 0; nSmoke = 0;
     for (let i=0;i<parts.length;i++){
       const q = parts[i]; q.life -= dt; if (q.life<=0) continue;
       q.x += q.vx*dt - p.v*pxPerM*dt*0.4; q.y += q.vy*dt;
       parts[wP++] = q;
       if (q.kind!=="smoke"){ nFlame++; continue; }
+      nSmoke++;
       // Comic-Wolke: Blumenkohl aus 3 Kreisen (ein Pfad) + heller Kern
-      const a = q.life*0.30, rr2 = q.r*(2.1-q.life);
+      const a = q.life*0.36, rr2 = q.r*(1.6-q.life*0.6);
       g.fillStyle = `rgba(222,226,234,${a})`;
       g.beginPath();
       g.moveTo(q.x-rr2*0.45+rr2*0.72, q.y-rr2*0.15); g.arc(q.x-rr2*0.45, q.y-rr2*0.15, rr2*0.72, 0, 7);
@@ -503,9 +507,10 @@ const Race = (() => {
     }
   }
   const MAX_PARTS = 90;
+  let nSmoke = 0;          // Rauchwolken im letzten Frame
   function puff(x,y,kind,scale=1){
     if (parts.length >= MAX_PARTS) parts.shift();
-    parts.push({x,y,kind, life: kind==="flame"?.16+scale*0.03:1.05,
+    parts.push({x,y,kind, life: kind==="flame"?.16+scale*0.03:0.75,
       vx:(Math.random()-.5)*36-(kind==="smoke"?55:0), vy:-24-Math.random()*36,
       r: (kind==="flame"?6+Math.random()*8:12+Math.random()*18)*scale});
   }

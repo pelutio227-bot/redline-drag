@@ -1137,17 +1137,20 @@ async function spriteCanvas(key, st){
   // fliegt nur was NICHT Lack ist (Reifen dunkel, Felge grau/weiss) und unter
   // der Kotflügel-Linie liegt. So verschwindet der komplette Foto-Reifen,
   // ohne dass die Radierung den Kotflügel/Flare anfrisst.
+  // Arbeits-Auflösung = Ziel-Auflösung (×1.25 Reserve) statt volle Foto-Grösse → ~¼ der Pixel
+  const fz = Math.min(1, L.scale*1.25), SW = Math.round(m.w*fz), SH = Math.round(m.h*fz);
   const srcCv = document.createElement("canvas");
-  srcCv.width = m.w; srcCv.height = m.h;
+  srcCv.width = SW; srcCv.height = SH;
   const sc = srcCv.getContext("2d", { willReadFrequently: true });
-  sc.drawImage(im, 0, 0, m.w, m.h);
-  const sd = sc.getImageData(0, 0, m.w, m.h);
-  for (const wd of whl){
-    const rIn = wd.r + 2, rOut = (wd.er ?? wd.r) + 4, fy = wd.fy ?? 0;
-    const ya = Math.max(0, Math.floor(wd.y - rOut)), yb = Math.min(m.h - 1, Math.ceil(wd.y + rOut));
-    const xa = Math.max(0, Math.floor(wd.x - rOut)), xb = Math.min(m.w - 1, Math.ceil(wd.x + rOut));
+  sc.drawImage(im, 0, 0, SW, SH);
+  const sd = sc.getImageData(0, 0, SW, SH);
+  for (const w0 of whl){
+    const wd = { x: w0.x*fz, y: w0.y*fz };
+    const rIn = (w0.r + 2)*fz, rOut = ((w0.er ?? w0.r) + 4)*fz, fy = (w0.fy ?? 0)*fz;
+    const ya = Math.max(0, Math.floor(wd.y - rOut)), yb = Math.min(SH - 1, Math.ceil(wd.y + rOut));
+    const xa = Math.max(0, Math.floor(wd.x - rOut)), xb = Math.min(SW - 1, Math.ceil(wd.x + rOut));
     for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++){
-      const i = (y*m.w + x)*4;
+      const i = (y*SW + x)*4;
       if (!sd.data[i+3]) continue;
       const dist = Math.hypot(x - wd.x, y - wd.y);
       if (dist > rOut) continue;
@@ -1297,7 +1300,29 @@ function svg2img(svg){
     img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   });
 }
-async function carImage(defKey, st){                                        // Preview
+// Performance (28.10., «nach Autokauf hängt das Spiel»): Garage rief 40× carImage gleichzeitig
+// (je Pixel-Bearbeitung des ganzen Fotos + PNG-Kodierung, ohne Cache) — bei jedem Neuaufbau.
+// Jetzt: Cache je Auto+Style, Aufträge EINZELN nacheinander mit Pause für die UI, Kodierung per toBlob.
+const carImgCache = new Map();
+let carImgQueue = Promise.resolve();
+// urgent = grosse Vorschau (Garage/Menü): sofort, nicht hinter den Fuhrpark-Bildchen anstellen
+function carImage(defKey, st, urgent = false){
+  const key = defKey + "|" + JSON.stringify(st);
+  const hit = carImgCache.get(key);
+  if (hit){ carImgCache.delete(key); carImgCache.set(key, hit); return hit; }   // LRU: nach hinten
+  const job = urgent ? carImageNow(defKey, { ...st })
+    : carImgQueue.then(() => new Promise(r => setTimeout(r, 0))).then(() => carImageNow(defKey, { ...st }));
+  if (!urgent) carImgQueue = job.catch(() => {});
+  carImgCache.set(key, job);
+  job.catch(() => carImgCache.delete(key));
+  while (carImgCache.size > 90){
+    const old = carImgCache.keys().next().value;
+    carImgCache.get(old).then(im => { if (im?._blobUrl) URL.revokeObjectURL(im._blobUrl); }).catch(() => {});
+    carImgCache.delete(old);
+  }
+  return job;
+}
+async function carImageNow(defKey, st){                                     // Preview
   const cv = await spriteCanvas(defKey, st);
   if (cv){
     // Kompositions-Reihenfolge: Radhaus (dunkel) → Rad → Karosserie DARÜBER
@@ -1314,8 +1339,11 @@ async function carImage(defKey, st){                                        // P
       c.drawImage(ws, wl.x - d/2, wl.y - d/2, d, d);
     }
     c.drawImage(cv, 0, 0);
+    const blob = await new Promise(res => out.toBlob ? out.toBlob(res, "image/png") : res(null));
     return await new Promise(res=>{
-      const im = new Image(); im.onload = ()=>res(im); im.src = out.toDataURL();
+      const im = new Image(); im.onload = ()=>res(im);
+      if (blob){ im._blobUrl = URL.createObjectURL(blob); im.src = im._blobUrl; }
+      else im.src = out.toDataURL();
     });
   }
   return svg2img(fullSVG(defKey, st));

@@ -97,7 +97,7 @@ const UI = (() => {
   async function renderMenu(){
     if (!save.current) return;
     const st = save.cars[save.current].style;
-    const img = await carImage(save.current, st);
+    const img = await carImage(save.current, st, true);
     const mc = document.getElementById("menuCar");
     mc.src = img.src;
     mc.style.filter = `drop-shadow(0 24px 30px rgba(0,0,0,.6)) drop-shadow(0 4px 34px hsla(${st.hue},90%,55%,.42))`;
@@ -215,9 +215,18 @@ const UI = (() => {
     renderGarageBody(); refreshPreview();
   });
   async function renderGarage(){ stylePreview = {}; markTab(); renderGoBar(); await refreshPreview(); renderGarageBody(); }
-  async function refreshPreview(){
+  // Schieber feuern viele Events → nur EIN Render gleichzeitig, danach der neueste Stand
+  let pvBusy = null, pvAgain = false;
+  function refreshPreview(){
+    if (pvBusy){ pvAgain = true; return pvBusy; }
+    pvBusy = (async () => {
+      do { pvAgain = false; await refreshPreviewNow(); } while (pvAgain);
+    })().finally(() => { pvBusy = null; });
+    return pvBusy;
+  }
+  async function refreshPreviewNow(){
     const stl = { ...save.cars[save.current].style, ...stylePreview };
-    const img = await carImage(save.current, stl);
+    const img = await carImage(save.current, stl, true);
     const el = document.getElementById("gCar");
     el.src = img.src;
     el.parentElement?.classList.toggle("probe", Object.keys(stylePreview).length > 0);
@@ -686,7 +695,7 @@ const UI = (() => {
     const d = decodeVS(code);
     if (!d) return false;
     const el = document.getElementById("vsInfo");
-    const img = await carImage(d.c, d.s);
+    const img = await carImage(d.c, d.s, true);
     el.innerHTML = `<img src="${img.src}" style="width:min(320px,74vw)"><b style="font-size:22px;font-style:italic">${(d.n||"EIN RIVALE").slice(0,14)}</b>
       <span class="mut">fordert dich heraus — mit einem getunten<br><b style="color:var(--txt)">${CAR_DEFS[d.c].name}</b></span>`;
     document.getElementById("vsAccept").onclick = ()=>{
@@ -946,7 +955,7 @@ const UI = (() => {
   async function renderVault(){
     const owned = !!save.cars.kuro?.owned;
     const def = CAR_DEFS.kuro;
-    const img = await carImage("kuro", owned ? save.cars.kuro.style : { hue:0, drop:12, rim:2, exhaust:2, spoiler:0, kit:0 });
+    const img = await carImage("kuro", owned ? save.cars.kuro.style : { hue:0, drop:12, rim:2, exhaust:2, spoiler:0, kit:0 }, true);
     document.getElementById("vaultCar").src = img.src;
     document.getElementById("vaultStats").innerHTML = `
       <div><b>${carPS(def)} PS</b><span>Leistung</span></div>
