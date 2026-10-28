@@ -220,10 +220,26 @@ const UI = (() => {
     const img = await carImage(save.current, stl);
     const el = document.getElementById("gCar");
     el.src = img.src;
+    el.parentElement?.classList.toggle("probe", Object.keys(stylePreview).length > 0);
     el.style.filter = `drop-shadow(0 18px 22px rgba(0,0,0,.55)) drop-shadow(0 4px 30px hsla(${stl.hue},90%,55%,.4))`;
     const pcH = perfClass(save.current, save.cars[save.current]);
     document.getElementById("gCarName").innerHTML =
       `${classBadge(pcH.cls)} ${CAR_DEFS[save.current].name} <span class="mut" style="font-size:11px">≈ ${pcH.et.toFixed(2)}s</span>`;
+  }
+
+  // Kauf-Moment: Auto blitzt auf + Funken + Haptik
+  function celebrate(){
+    const w = document.getElementById("gCar")?.parentElement; if (!w) return;
+    w.classList.remove("boom"); void w.offsetWidth; w.classList.add("boom");
+    for (let i = 0; i < 14; i++){
+      const sp = document.createElement("span"); sp.className = "spark";
+      const a = Math.random()*Math.PI*2, r = 60 + Math.random()*90;
+      sp.style.left = (40 + Math.random()*20) + "%"; sp.style.top = (45 + Math.random()*20) + "%";
+      sp.style.setProperty("--dx", Math.cos(a)*r + "px"); sp.style.setProperty("--dy", Math.sin(a)*r*0.6 + "px");
+      if (i % 3 === 0) sp.style.background = "#fff";
+      w.appendChild(sp); setTimeout(() => sp.remove(), 900);
+    }
+    window.NativeBridge?.haptic?.("heavy");
   }
 
   // UPGRADES / upgCost / carSimET kommen aus sim.js (eine Quelle für Spiel + Test)
@@ -450,37 +466,77 @@ const UI = (() => {
         if (save.money < price) return toast(`Zu wenig Cash — ${fmt$(price)} nötig. Fahr Rennen!`);
         save.money -= price; cs.styleOwned[key] = true;
         apply(); persist(); updateCash(); AudioSys.winJingle?.();
-        renderGarageBody(); refreshPreview();
-        toast(`${label} gekauft ✓ −${fmt$(price)}`);
+        renderGarageBody(); refreshPreview().then(celebrate);
+        toast(`${label} montiert ✓ −${fmt$(price)}`);
       };
-      // Slider mit LIVE-Vorschau: ungekauft → wirkt nur auf die Vorschau,
-      // darunter Kauf-Leiste «Übernehmen». Gekauft → wirkt direkt.
-      const card = div("card","<h3>Lack &amp; Stance</h3>");
-      card.appendChild(slider("Farbe", stylePreview.hue ?? st.hue, 0, 360, 1, v=>{
+      // Kauf-Leiste nur, wenn gerade etwas AUSPROBIERT wird (vorher stand sie immer da)
+      const probeBar = (html, price, btn, onBuy, onCancel) => {
+        const bar = div("buybar", `<span>${html}</span>`);
+        const b = document.createElement("button");
+        b.className = "buy" + (save.money >= price ? " can" : ""); b.textContent = `${btn} ${fmt$(price)}`;
+        b.addEventListener("click", onBuy);
+        const no = document.createElement("button"); no.className = "dismiss"; no.textContent = "✕";
+        no.addEventListener("click", onCancel);
+        bar.appendChild(b); bar.appendChild(no);
+        return bar;
+      };
+      const swatchRow = (list, cur, onPick, neon) => {
+        const row = div("swatches", "");
+        list.forEach(([h, name]) => {
+          const b = document.createElement("button");
+          const col = h == null ? "" : `hsl(${h} ${neon ? "100% 60%" : "75% 46%"})`;
+          b.className = "sw" + (neon && h != null ? " neon" : "") + (h == null ? " off" : "") + (h === cur ? " sel" : "");
+          if (h == null) b.textContent = "AUS";
+          else { b.style.background = col; b.style.setProperty("--swc", col); }
+          b.setAttribute("aria-label", name);
+          b.addEventListener("click", () => onPick(h, name));
+          row.appendChild(b);
+        });
+        return row;
+      };
+      const PAINTS = [[355,"Rosso"],[22,"Orange"],[48,"Gelb"],[88,"Lime"],[135,"Grün"],[175,"Türkis"],[205,"Blau"],[232,"Royal"],[272,"Violett"],[318,"Pink"]];
+      const hueName = h => (PAINTS.reduce((a, p) => Math.abs(((p[0]-h+540)%360)-180) < Math.abs(((a[0]-h+540)%360)-180) ? p : a))[1];
+
+      // ── Lackierung: Farbfelder (+ Feinabstimmung). Einmal kaufen = jede Farbe gratis ──
+      const card = div("card","<h3>Lackierung</h3>");
+      const paintNow = stylePreview.hue ?? st.hue;
+      const setPaint = h => {
+        if (cs.styleOwned.paint){ st.hue = h; delete stylePreview.hue; persist(); }
+        else if (h === st.hue) delete stylePreview.hue;
+        else stylePreview.hue = h;
+        renderGarageBody(); refreshPreview();
+      };
+      if (cs.styleOwned.paint) card.appendChild(div("stylehint", "✓ Lackierpistole — jede Farbe gratis, so oft du willst"));
+      card.appendChild(swatchRow(PAINTS, paintNow, h => setPaint(h)));
+      card.appendChild(slider("Feinabstimmung", paintNow, 0, 360, 1, v=>{
         if (cs.styleOwned.paint){ st.hue = v; persist(); } else stylePreview.hue = v;
         refreshPreview();
       }, ()=> "●", true));
-      if (!cs.styleOwned.paint){
-        const bar = div("buybar", `<span>Farb-Vorschau frei — <b>Lackierung</b> übernehmen?</span>`);
-        const b = document.createElement("button");
-        b.className = "buy can"; b.textContent = `Kaufen ${fmt$(PRICES.paint)}`;
-        b.addEventListener("click", ()=> buyIt("paint", PRICES.paint, "Lackierung",
-          ()=>{ if (stylePreview.hue != null) st.hue = stylePreview.hue; delete stylePreview.hue; }));
-        bar.appendChild(b); card.appendChild(bar);
-      }
-      card.appendChild(slider("Tieferlegung", stylePreview.drop ?? st.drop, 0, 22, 1, v=>{
-        if (cs.styleOwned.stance){ st.drop = v; persist(); } else stylePreview.drop = v;
-        refreshPreview();
-      }, v=>v+" mm"));
-      if (!cs.styleOwned.stance){
-        const bar = div("buybar", `<span>Stance-Vorschau frei — <b>Gewindefahrwerk</b> übernehmen?</span>`);
-        const b = document.createElement("button");
-        b.className = "buy can"; b.textContent = `Kaufen ${fmt$(PRICES.stance)}`;
-        b.addEventListener("click", ()=> buyIt("stance", PRICES.stance, "Gewindefahrwerk",
-          ()=>{ if (stylePreview.drop != null) st.drop = stylePreview.drop; delete stylePreview.drop; }));
-        bar.appendChild(b); card.appendChild(bar);
+      if (!cs.styleOwned.paint && stylePreview.hue != null){
+        card.appendChild(probeBar(`Neue Farbe <b style="color:hsl(${stylePreview.hue} 80% 62%)">${hueName(stylePreview.hue)}</b> — einmal zahlen, danach <b>jede Farbe gratis</b>`,
+          PRICES.paint, "Lackieren", ()=> buyIt("paint", PRICES.paint, "Lackierung",
+            ()=>{ st.hue = stylePreview.hue; delete stylePreview.hue; }),
+          ()=>{ delete stylePreview.hue; renderGarageBody(); refreshPreview(); }));
+      } else if (!cs.styleOwned.paint){
+        card.appendChild(div("stylehint", `<span style="color:var(--mut);font-weight:600">Tipp auf eine Farbe — dein Auto zeigt sie sofort. Kostet erst beim Lackieren.</span>`));
       }
       el.appendChild(card);
+
+      // ── Fahrwerk ──
+      const sc = div("card","<h3>Fahrwerk</h3>");
+      if (cs.styleOwned.stance) sc.appendChild(div("stylehint", "✓ Gewindefahrwerk — Höhe frei einstellbar"));
+      sc.appendChild(slider("Tieferlegung", stylePreview.drop ?? st.drop, 0, 22, 1, v=>{
+        if (cs.styleOwned.stance){ st.drop = v; persist(); refreshPreview(); return; }
+        const was = stylePreview.drop != null;
+        stylePreview.drop = v; refreshPreview();
+        if (!was) renderGarageBody();                   // Kauf-Leiste einblenden
+      }, v=>v+" mm"));
+      if (!cs.styleOwned.stance && stylePreview.drop != null){
+        sc.appendChild(probeBar(`Gewindefahrwerk — Höhe danach <b>frei einstellbar</b>`, PRICES.stance, "Einbauen",
+          ()=> buyIt("stance", PRICES.stance, "Gewindefahrwerk", ()=>{ st.drop = stylePreview.drop; delete stylePreview.drop; }),
+          ()=>{ delete stylePreview.drop; renderGarageBody(); refreshPreview(); }));
+      }
+      el.appendChild(sc);
       el.appendChild(segCard("Felgen", ["Sport","Mesh Gold","Turbofan","Racing Weiss"], st.rim,
         v=>{ st.rim=v; persist(); refreshPreview(); }, [0,0,0,5], PRICES.rim, "rim"));
       el.appendChild(segCard("Auspuffanlage", ["Serie","Duplex","Big Bore","Race Sidepipe"], st.exhaust,
@@ -494,8 +550,35 @@ const UI = (() => {
       }
       el.appendChild(segCard("Bodykit", ["Ohne","Street","Widebody"], st.kit ?? 0,
         v=>{ st.kit=v; persist(); refreshPreview(); }, [0,10,16], PRICES.kit, "kit"));
-      el.appendChild(segCard("Neon-Unterboden", ["Aus","An"], st.neon ?? 0,
-        v=>{ st.neon=v; persist(); refreshPreview(); }, [0,6], PRICES.neon, "neon"));
+      // ── Neon: eigene Farbe, Kit enthält alle Farben ──
+      const NEONS = [[null,"Aus"],[0,"Rot"],[28,"Orange"],[55,"Gelb"],[120,"Grün"],[180,"Cyan"],[210,"Blau"],[270,"Violett"],[305,"Magenta"]];
+      const nc = div("card","<h3>Neon-Unterboden</h3>");
+      const neonLock = save.level < 6;
+      const nOn = stylePreview.neon ?? st.neon ?? 0;
+      const nHue = stylePreview.neonHue ?? st.neonHue ?? st.hue;
+      if (neonLock){
+        nc.appendChild(div("stylehint", `<span style="color:var(--mut)">🔒 Ab Level 6</span>`));
+      } else {
+        if (cs.styleOwned.neon1) nc.appendChild(div("stylehint", "✓ Neon-Kit — alle Farben inklusive"));
+        nc.appendChild(swatchRow(NEONS, nOn ? nHue : null, h => {
+          const on = h == null ? 0 : 1;
+          if (cs.styleOwned.neon1){
+            st.neon = on; if (on) st.neonHue = h;
+            delete stylePreview.neon; delete stylePreview.neonHue; persist();
+          } else if (!on){ delete stylePreview.neon; delete stylePreview.neonHue; }
+          else { stylePreview.neon = 1; stylePreview.neonHue = h; }
+          renderGarageBody(); refreshPreview();
+        }, true));
+        if (!cs.styleOwned.neon1 && stylePreview.neon){
+          nc.appendChild(probeBar(`Neon <b style="color:hsl(${stylePreview.neonHue} 100% 62%)">${NEONS.find(n => n[0] === stylePreview.neonHue)?.[1] ?? ""}</b> — Kit mit <b>allen Farben</b>`,
+            PRICES.neon[1], "Einbauen", ()=> buyIt("neon1", PRICES.neon[1], "Neon-Kit",
+              ()=>{ st.neon = 1; st.neonHue = stylePreview.neonHue; delete stylePreview.neon; delete stylePreview.neonHue; }),
+            ()=>{ delete stylePreview.neon; delete stylePreview.neonHue; renderGarageBody(); refreshPreview(); }));
+        } else if (!cs.styleOwned.neon1){
+          nc.appendChild(div("stylehint", `<span style="color:var(--mut);font-weight:600">Tipp auf eine Farbe zum Ausprobieren.</span>`));
+        }
+      }
+      el.appendChild(nc);
     }
   }
 
@@ -546,9 +629,9 @@ const UI = (() => {
         save.money -= p; cs.styleOwned[pkey + i] = true;
         delete stylePreview[pkey];
         updateCash(); AudioSys.winJingle?.();
-        toast(`${opts[i]} gekauft &amp; montiert ✓ −$${p.toLocaleString("de-CH")}`);
+        toast(`${opts[i]} montiert ✓ −$${p.toLocaleString("de-CH")}`);
         on(i);                                       // montiert + persistiert
-        renderGarageBody();
+        renderGarageBody(); setTimeout(celebrate, 120);
       });
       const no = document.createElement("button");
       no.className = "dismiss"; no.textContent = "✕";
@@ -1008,13 +1091,46 @@ const UI = (() => {
     if (lu.leveled) setTimeout(()=>levelUp(lu.unlocked), 1200);
   }
 
+  // Duo-Link auf einem iPhone ohne App: kurzer Hinweis + automatisch in den App Store.
+  // «Im Browser spielen» bleibt als Ausweg (gibt false zurück → normaler Start).
+  const APP_STORE_URL = "https://apps.apple.com/app/id6823108171";
+  function duoStoreHint(code){
+    const d = document.createElement("div");
+    d.id = "duoStore";
+    d.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#0A0A0E;color:#F2F3F7";
+    d.innerHTML = `<div style="font:italic 900 26px system-ui;letter-spacing:.04em">REDLINE <span style="color:#FF2D40">DUO</span></div>
+      <div style="color:#aeb3c2;font-size:15px;max-width:320px">Du wurdest zu einem Rennen eingeladen. Lade Redline Tuner und gib in <b>iPhone Duo</b> diesen Code ein:</div>
+      <div style="font:900 34px ui-monospace,Menlo,monospace;letter-spacing:.18em;color:#FFC61A">${code}</div>
+      <a href="${APP_STORE_URL}" style="display:block;min-width:240px;padding:15px 18px;border-radius:16px;background:#FF2D40;color:#fff;font-weight:900;text-decoration:none">Im App Store laden</a>
+      <button id="duoWeb" style="min-height:44px;background:none;border:0;color:#8E92A3;font-size:14px;text-decoration:underline">Im Browser spielen</button>`;
+    document.body.appendChild(d);
+    const t = setTimeout(() => { location.href = APP_STORE_URL; }, 1600);
+    d.querySelector("#duoWeb").onclick = () => {
+      clearTimeout(t); d.remove();
+      if (!save.current){ renderStarter().then(() => show("starter")); }
+      else { const c = window.DUEL_CODE; window.DUEL_CODE = null; show("menu"); Duo.open(c); }
+    };
+    return true;
+  }
+  // Store-App: Universal Link /duo/CODE (Kamera-Scan, Nachricht) → direkt in die Duo-Lobby
+  window.openDuoLink = code => {
+    code = String(code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!code) return;
+    if (Race.active() && !Duo.racing) Race.stop();
+    if (!save.current){ window.DUEL_CODE = code; return; }   // nach der Autowahl
+    show("menu"); Duo.open(code);
+  };
+
   // ── Boot ──
   (async ()=>{
     window.Cloud?.init?.();
     // iPhone Duo per QR/Link: ?duo=12345 (alte Live-Links ?duel=… landen auch hier)
     const qs = new URLSearchParams(location.search);
-    const duo = qs.get("duo") || qs.get("duel");
-    if (duo){ window.DUEL_CODE = duo.toUpperCase().replace(/[^A-Z0-9]/g,""); history.replaceState(null,"",location.pathname); }
+    const pm = location.pathname.match(/^\/duo\/([A-Za-z0-9]+)/);   // Universal-Link-Pfad /duo/CODE
+    const duo = qs.get("duo") || qs.get("duel") || pm?.[1];
+    if (duo){ window.DUEL_CODE = duo.toUpperCase().replace(/[^A-Z0-9]/g,""); history.replaceState(null,"","/"); }
+    // iPhone im Browser ohne App: Duo-Link → App Store (Code bleibt sichtbar zum Eintippen)
+    if (duo && !window.NativeBridge?.isNative && /iPhone|iPad|iPod/.test(navigator.userAgent) && duoStoreHint(window.DUEL_CODE)) return;
     if (new URLSearchParams(location.search).get("vault") === "success"){
       history.replaceState(null,"",location.pathname);
       toast("✨ Danke! Dein VAULT-Auto wird freigeschaltet…");

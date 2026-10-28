@@ -15,12 +15,14 @@ const SIM_DT = 1/120;
 // ── Upgrades (eine Quelle für Garage, Ökonomie und Balancing-Test) ──
 const UPGRADES = [
   { k:"engine", n:"Motor", d:"+15% Leistung pro Stufe", max:3, cost:[900,2600,6200] },
-  { k:"turbo",  n:"Turbolader", d:"+28% Leistung · Ladedruck", max:1, cost:[3800] },
+  { k:"turbo",  n:"Turbolader", d:"Stage 1 +28% · Stage 2 +40% · Stage 3 +50% Leistung", max:3, cost:[3800,7600,12800] },
   { k:"tires",  n:"Slicks", d:"Mehr Grip beim Launch", max:2, cost:[1200,3200] },
   { k:"trans",  n:"Renngetriebe", d:"Schnellere Schaltzeiten", max:2, cost:[1500,3600] },
   { k:"weight", n:"Leichtbau", d:"−70 kg pro Stufe", max:2, cost:[2200,4800] },
   { k:"nos",    n:"NOS-Flasche", d:"+1.6s NOS pro Stufe (0.9s serienmässig)", max:2, cost:[1100,2400] },
 ];
+// Turbo-Stages (28.10.): Stufe 1 wie früher +28 %, danach grösserer Lader
+const TURBO_PM = [0, 0.28, 0.40, 0.50];
 // Teile kosten relativ zum Auto-Wert: am Starter billig und spürbar.
 const upgMul = k => Math.min(5, Math.max(0.55, 0.55 + (CAR_DEFS[k].price || 0)/50000));
 const upgCost = (u, lvl, k) => Math.round(u.cost[lvl] * upgMul(k) / 10) * 10;
@@ -32,7 +34,7 @@ function defaultTune(def){
 function buildSpec(carKey, carState, dist = QMILE){
   const def = CAR_DEFS[carKey];
   const up = carState.up, tune = carState.tune;
-  const powerMul = 1 + up.engine*0.15 + (up.turbo ? 0.28 : 0);
+  const powerMul = 1 + up.engine*0.15 + TURBO_PM[Math.min(3, up.turbo|0)];
   const mass = def.mass - up.weight*70;
   const mu = (1.02 + up.tires*0.16) * (def.grip ?? 1);
   const shiftTime = 0.27 - up.trans*0.05;
@@ -274,12 +276,12 @@ const LEAGUE_SIZE = 5;
 // `node tools/balance-sim.mjs 300 --calibrate` (Ziel-Siegquoten siehe dort).
 // <ET-TABELLE>
 const RIVAL_ET = [
-  [16.72,15.27,15.01,14.12,13.72],
-  [13.71,13.30,12.83,12.59,11.93],
-  [11.79,11.37,11.28,11.18,11.12],
-  [11.11,10.93,10.91,10.71,10.52],
-  [10.42,10.14,10.10,10.01,9.74],
-  [9.73,9.72,9.64,9.07,8.76],
+  [16.77,15.26,14.95,14.23,13.80],
+  [13.79,13.27,12.87,12.64,11.90],
+  [11.80,11.36,11.13,11.04,10.86],
+  [10.85,10.84,10.73,10.58,10.49],
+  [10.43,9.97,9.96,9.90,9.85],
+  [9.62,9.61,9.59,9.58,8.96],
 ];
 // </ET-TABELLE>
 // Preisgeld: wächst pro Liga stark (neue Autos kosten 6.5k … 380k), +12% pro

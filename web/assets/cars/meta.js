@@ -5,7 +5,7 @@ window.CAR_SPRITES = {
   falco:  { src:"assets/cars/falco.png",  w:960, h:369, wx1:181, wx2:774, wy:296, r:53, sx:115, sy:200 },
   grenz:  { src:"assets/cars/grenz.png",  w:960, h:356, wx1:155, wx2:775, wy:272, r:62, sx:168, sy:26 },
   rota:   { src:"assets/cars/rota.png",   w:880, h:293, wx1:215, wx2:685, wy:205, r:60, sx:118, sy:118, wing:true },
-  temp:   { src:"assets/cars/temp.png",   w:920, h:489, wx1:180, wx2:690, wy:360, r:70, sx:132, sy:230 },
+  temp:   { src:"assets/cars/temp.png",   w:920, h:489, wx1:180, wx2:690, wy:360, r:70, sx:132, sy:230, wing:true },  // Foto hat Werks-Heckspoiler
   strat:  { src:"assets/cars/strat.png",  w:960, h:445, wx1:202, wx2:745, wy:292, r:62, sx:100, sy:195 },
   apex:   { src:"assets/cars/apex.png",   w:960, h:511, wx1:222, wx2:715, wy:355, r:65, sx:104, sy:278 },
   taifun: { src:"assets/cars/taifun.png", w:960, h:344, wx1:215, wx2:745, wy:255, r:62, sx:92, sy:102, wing:true },
@@ -16,7 +16,7 @@ window.CAR_SPRITES = {
   ryujin: { src:"assets/cars/ryujin.png", w:860, h:398, wx1:205, wx2:755, wy:245, r:65, sx:58, sy:105, wing:true },
   shini:  { src:"assets/cars/shini.png",  w:904, h:300, wx1:204, wx2:717, wy:235, r:68, sx:111, sy:124, wing:true },
   strip:  { src:"assets/cars/strip.png",  w:928, h:498, wx1:256, wx2:731, wy:410, r:57, sx:58, sy:230, wing:true },
-  pico:   { src:"assets/cars/pico.png",   w:960, h:510, wx1:170, wx2:779, wy:434, r:72, rr:37, sx:85,  sy:66 },
+  pico:   { src:"assets/cars/pico.png",   w:960, h:510, wx1:170, wx2:779, wy:434, r:72, sx:85,  sy:66 },
   raiden: { src:"assets/cars/raiden.png", w:960, h:299, wx1:206, wx2:752, wy:220, r:55, wing:true },
   samura: { src:"assets/cars/samura.png", w:960, h:278, wx1:189, wx2:735, wy:208, r:67, wing:true },
   sakura: { src:"assets/cars/sakura.png", w:960, h:329, wx1:185, wx2:775, wy:273, r:65, sx:105, sy:122 },

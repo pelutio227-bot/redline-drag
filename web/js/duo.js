@@ -17,6 +17,9 @@
 // Abbruch (✕) = Aufgabe; Verbindungsverlust = Rennen nicht gewertet.
 const Duo = (() => {
   const PUBLIC_URL = "https://l.abooz.ch/";
+  // Universal Link (28.10.): /duo/CODE öffnet auf dem iPhone direkt die App (apple-app-site-association),
+  // ohne App landet man auf l.abooz.ch → iPhone: App Store, sonst Web-Spiel
+  const duoLink = c => PUBLIC_URL + "duo/" + c;
   const $ = id => document.getElementById(id);
   const myId = (crypto.randomUUID?.() || String(Math.random()).slice(2) + Date.now()).slice(0, 18);
   let ch = null, code = null, host = false, phase = "start";
@@ -314,7 +317,7 @@ const Duo = (() => {
           <p class="duostat">Zweites iPhone: Redline öffnen → <b>iPhone Duo</b> → Code eingeben.<br>Oder den QR-Code mit der Kamera scannen.</p>
           <div class="spin"></div><p class="duostat">Warte auf Mitspieler…</p>`)
         + `<button class="mbtn" id="duoShare" style="width:100%">🔗 Code teilen</button>`;
-      $("duoQr").appendChild(qrCanvas(PUBLIC_URL + "?duo=" + code));
+      $("duoQr").appendChild(qrCanvas(duoLink(code)));
       $("duoShare").onclick = share;
       return;
     }
@@ -354,7 +357,7 @@ const Duo = (() => {
     }
   }
   async function share(){
-    const url = PUBLIC_URL + "?duo=" + code;
+    const url = duoLink(code);
     const txt = `REDLINE iPhone Duo — Code ${code}`;
     if (navigator.share){ try { await navigator.share({ title: "Redline Duo", text: txt, url }); return; } catch {} }
     try { await navigator.clipboard.writeText(`${txt} · ${url}`); UI.toast("Code kopiert"); } catch { UI.toast("Code: " + code); }

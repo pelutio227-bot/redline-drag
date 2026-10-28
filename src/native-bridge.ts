@@ -95,6 +95,17 @@ if (isNative) {
   void StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
   const mark = () => document.documentElement?.classList.add("native-app", "native-" + Capacitor.getPlatform(), IAP_ENABLED ? "iap-on" : "iap-off");
   mark(); document.addEventListener("DOMContentLoaded", mark);
+  // Universal Link https://l.abooz.ch/duo/CODE (QR-Scan mit der Kamera, Nachricht) → Duo-Lobby.
+  // Kaltstart: getLaunchUrl; läuft die App schon: appUrlOpen.
+  const duoFromUrl = (url?: string) => {
+    const m = url?.match(/\/duo\/([A-Za-z0-9]+)/) ?? url?.match(/[?&]duo=([A-Za-z0-9]+)/);
+    if (!m) return;
+    const w = window as unknown as { openDuoLink?: (c: string) => void; DUEL_CODE?: string };
+    if (w.openDuoLink) w.openDuoLink(m[1]);
+    else w.DUEL_CODE = m[1].toUpperCase();      // Spiel bootet noch → Boot-Logik übernimmt
+  };
+  void CapApp.addListener("appUrlOpen", (e) => duoFromUrl(e.url));
+  void CapApp.getLaunchUrl().then((r) => duoFromUrl(r?.url)).catch(() => {});
   // Zurück-Geste/Taste (Android) → Spiel-eigene Navigation
   void CapApp.addListener("backButton", () => {
     const back = document.querySelector<HTMLButtonElement>(".screen.on .back");

@@ -831,9 +831,34 @@ function measureSprite(im, m){
   const sa = Math.round(wheels[0].x + (wheels[0].er ?? wheels[0].r) + 6);
   const sb = Math.round(wheels[1].x - (wheels[1].er ?? wheels[1].r) - 6);
   const sillBot = sb > sa ? med(bot.slice(sa, sb)) : -1;
-  return spriteMeasureCache[m.src] = { x0, x1, rearX, noseX,
+  // Vorder-/Hinterrad gleich gross (Detektion streut je nach Foto-Schatten), ausser das
+  // Auto hat bewusst andere Hinterräder (m.rr = Drag-Slicks)
+  if (m.rr == null){
+    const er = Math.max(wheels[0].er, wheels[1].er);
+    for (const wd of wheels) wd.er = er;
+  }
+  // Zeilen-Linkskante (Heck-Kontur je Höhe) — Auspuff kommt exakt aus der Schürze
+  const left = new Array(m.h).fill(-1);
+  for (let y = 0; y < m.h; y++){
+    let run = 0;
+    for (let x = 0; x < m.w; x++){
+      if (d[(y*m.w + x)*4 + 3] > 128){ if (++run >= 3){ left[y] = x - 2; break; } } else run = 0;
+    }
+  }
+  let bumperY = -1, noseY = -1, noseRX = -1;
+  for (let y = m.h - 1; y >= 0; y--){
+    if (left[y] >= 0 && left[y] - x0 < w*0.07){ bumperY = y; break; }
+  }
+  // dasselbe vorne (Zeilen-Rechtskante)
+  for (let y = m.h - 1; y >= 0 && noseY < 0; y--){
+    let run = 0;
+    for (let x = m.w - 1; x >= 0; x--){
+      if (d[(y*m.w + x)*4 + 3] > 128){ if (++run >= 3){ if (x1 - (x + 2) < w*0.07){ noseY = y; noseRX = x + 2; } break; } } else run = 0;
+    }
+  }
+  return spriteMeasureCache[m.src] = { x0, x1, rearX, noseX, bumperY, noseY, noseRX,
     deckX: Math.round(x0 + w*0.08), deckY,
-    rearBot: bumBot >= 0 ? bumBot : rearBot, noseBot, sillBot, wheels };
+    rearBot: bumBot >= 0 ? bumBot : rearBot, noseBot, sillBot, wheels, top, left };
 }
 function spriteLayout(m){
   // Rad = 28.8 Einheiten; nie breiter als der Canvas; nie höher als der Platz
@@ -931,6 +956,104 @@ function drawSpoilerC(c, ax, ay, sp, k=1, wing, hue=0){
     c.fillStyle = "#0b0e12"; c.fillRect(ax-16*kw, ay-24*kw, 5.5*kw, 13*kw);
   }
 }
+// Endrohr-Anker aus der Kontur (null = keine Messung → alter Fallback)
+const EX_H = [6, 13, 13];            // Gesamthöhe des Rohr-Pakets je Kit (×k)
+function exhaustAnchor(M, L, ex, k, dropPx){
+  if (!M || !M.left || !(M.bumperY >= 0)) return null;
+  const H = EX_H[ex]*k;
+  const y = Math.min(GROUND_Y - 3, L.yoff + M.bumperY*L.scale + dropPx - H*0.5 - 1*k);
+  const sy = Math.round((y - dropPx - L.yoff) / L.scale);
+  // Rohr muss HINTER dem Hinterrad aus der Schürze kommen (halbtransparente Schürzen-
+  // Unterkanten lassen die Kontur sonst erst am Reifen beginnen) → notfalls höher suchen
+  const w0 = M.wheels[0], wl = w0.x - (w0.er ?? w0.r) - 4;
+  for (let dy = 0; dy < 60 && sy - dy >= 0; dy++){
+    const v = M.left[sy - dy];
+    if (v >= 0 && v < wl) return { x: L.xoff + v*L.scale, y: y - dy*L.scale };
+  }
+  return null;
+}
+// Endrohre: nur ein kurzes Stück ragt aus der Schürze (der Rest liegt unterm Blech,
+// die Karosserie wird danach darübergezeichnet)
+function drawExhaustTip(c, bx, cy, ex, k){
+  const tip = (x, y, w, h) => {
+    c.fillStyle = chromeGrad(c, y, h); rrC(c, x, y, w, h, h/2); c.fill();
+    c.fillStyle = "#05070a";
+    c.beginPath(); c.ellipse(x + h*0.38, y + h/2, h*0.26, h/2 - 0.8, 0, 0, 7); c.fill();
+    c.fillStyle = "rgba(255,255,255,.35)"; c.fillRect(x + 2, y + 0.8, w - 4, 1.2);
+  };
+  if (ex === 0) tip(bx - 6*k, cy - 3*k, 20*k, 6*k);                 // Serie: dezent
+  else if (ex === 1){                                               // Duplex: Doppelrohr
+    tip(bx - 8*k, cy - 6.5*k, 22*k, 6*k);
+    tip(bx - 8*k, cy + 0.5*k, 22*k, 6*k);
+  } else {                                                          // Big Bore: dicker Lauf
+    tip(bx - 11*k, cy - 6.5*k, 26*k, 13*k);
+    c.strokeStyle = "rgba(255,255,255,.30)"; c.lineWidth = 1.4;
+    c.beginPath(); c.ellipse(bx - 11*k + 13*k*0.38, cy, 13*k*0.3, 6.5*k - 0.5, 0, 0, 7); c.stroke();
+  }
+}
+// Spoiler, der der Karosserie-Kontur folgt (28.10.: vorher fester Anker → schwebte über
+// Dach/Deck). Erkennt Steil-/Schrägheck (Deck fast auf Dachhöhe) → Dachspoiler statt Flügel.
+// sp 1 = Lack-Ducktail bzw. Dachkante, sp 2 = Carbon-GT-Flügel bzw. grosser Dachspoiler
+function drawSpoilerFit(c, G, sp, k, hue){
+  const { x0c, Lc, topC } = G;
+  const at = f => topC(x0c + Lc*f);
+  let roof = 1e9;
+  for (let f = 0.30; f <= 0.70; f += 0.02){ const y = at(f); if (y != null) roof = Math.min(roof, y); }
+  const deck = at(0.07);
+  if (roof > 1e8 || deck == null) return;
+  const hatch = deck - roof < 0.35*(AXLE_Y - roof);
+  const paint = l => `hsl(${hue} 68% ${l}%)`;
+  if (hatch){
+    // Hinterkante des Dachs: erste Stelle (von hinten), die fast Dachhöhe erreicht
+    let xr = x0c + Lc*0.04;
+    for (let f = 0.01; f < 0.4; f += 0.005){ const y = at(f); if (y != null && y <= roof + 0.10*(AXLE_Y - roof)){ xr = x0c + Lc*f; break; } }
+    const yr = topC(xr + 8*k) ?? roof;
+    const len = sp === 2 ? 30*k : 22*k, th = sp === 2 ? 7*k : 5.5*k, lift = sp === 2 ? 2*k : 0.5*k;
+    const x1 = xr + 12*k, x2 = xr - len + 12*k, yA = yr - lift;
+    const yEnd = topC(x2);                                 // Heckschräge unter dem Spoilerende
+    const yB = yA + Math.max(2*k, Math.min(10*k, ((yEnd ?? yA) - yA)*0.35));
+    c.fillStyle = sp === 2 ? "#14171c" : paint(36);
+    c.beginPath(); c.moveTo(x1, yA); c.lineTo(x2, yB - th*0.2); c.lineTo(x2 + 2*k, yB + th*0.8); c.lineTo(x1, yA + th); c.closePath(); c.fill();
+    c.fillStyle = sp === 2 ? "rgba(255,255,255,.22)" : paint(56);
+    c.beginPath(); c.moveTo(x1, yA); c.lineTo(x2, yB - th*0.2); c.lineTo(x2 + 0.6*k, yB + th*0.15); c.lineTo(x1, yA + th*0.35); c.closePath(); c.fill();
+    if (sp === 2){                                        // Endplatte am Spoilerende
+      c.fillStyle = "#0b0e12"; c.fillRect(x2 - 1*k, yB - 3*k, 3*k, th + 5*k);
+    }
+    return;
+  }
+  if (sp === 1){
+    // Ducktail: Lackkante folgt dem Deckel, hinten hochgezogen
+    const xa = x0c + Lc*0.012, xb = x0c + Lc*0.15, N = 12, up = [];
+    c.beginPath();
+    for (let i = 0; i <= N; i++){ const x = xa + (xb - xa)*i/N; const y = topC(x); if (y == null) return; up.push([x, y]); c[i ? "lineTo" : "moveTo"](x, y + 1.5); }
+    for (let i = N; i >= 0; i--){ const [x, y] = up[i]; c.lineTo(x, y - (1 + 6*(1 - i/N)**1.5)*k); }
+    c.closePath(); c.fillStyle = paint(36); c.fill();
+    c.beginPath();
+    for (let i = 0; i <= N; i++){ const [x, y] = up[i]; c[i ? "lineTo" : "moveTo"](x, y - (1 + 6*(1 - i/N)**1.5)*k); }
+    c.strokeStyle = paint(58); c.lineWidth = 1.4; c.stroke();
+    return;
+  }
+  // GT-Flügel: zwei Stützen stehen exakt auf dem Deckel (jede eigene Länge)
+  const xr1 = x0c + Lc*0.04, xr2 = x0c + Lc*0.115;
+  const b1 = topC(xr1), b2 = topC(xr2);
+  if (b1 == null || b2 == null) return;
+  let yp = Math.min(b1, b2) - 13*k;
+  yp = Math.max(yp, roof + 3*k);                          // nie über Dachhöhe
+  if (Math.min(b1, b2) - yp < 6*k) yp = Math.min(b1, b2) - 6*k;
+  const xa = x0c - 3*k, xb = xr2 + 13*k;
+  c.fillStyle = "rgba(0,0,0,.28)";
+  c.beginPath(); c.ellipse((xr1 + xr2)/2, (b1 + b2)/2 + 1.5, (xr2 - xr1)/2 + 6*k, 2.2*k, 0, 0, 7); c.fill();
+  c.fillStyle = "#171b20";
+  c.fillRect(xr1 - 1.8*k, yp, 3.6*k, b1 - yp + 1.5);
+  c.fillRect(xr2 - 1.8*k, yp, 3.6*k, b2 - yp + 1.5);
+  const pg = c.createLinearGradient(0, yp - 6*k, 0, yp + 3*k);
+  pg.addColorStop(0, "#2a2f36"); pg.addColorStop(.45, "#14171c"); pg.addColorStop(1, "#0a0d11");
+  c.fillStyle = pg;
+  c.beginPath(); c.moveTo(xa, yp - 4*k); c.lineTo(xb, yp - 1.5*k); c.lineTo(xb, yp + 2*k); c.lineTo(xa + 2*k, yp + 2.5*k); c.closePath(); c.fill();
+  c.fillStyle = "rgba(255,255,255,.22)";
+  c.beginPath(); c.moveTo(xa, yp - 4*k); c.lineTo(xb, yp - 1.5*k); c.lineTo(xb, yp - 0.4*k); c.lineTo(xa + 0.5*k, yp - 2.8*k); c.closePath(); c.fill();
+  c.fillStyle = "#0b0e12"; c.fillRect(xa - 3*k, yp - 7*k, 3.5*k, 12*k);   // Endplatte
+}
 // Neon-Unterboden (Lackfarbe) — Licht-Pool am Boden, SKALIERT mit dem Auto (k)
 // und BREITER als die Karosserie, sonst deckt das Auto das Licht komplett ab.
 function drawNeonC(c, x1, x2, hue, k = 1, gy = GROUND_Y){
@@ -974,7 +1097,8 @@ async function spriteCanvas(key, st){
   c.fillStyle = "rgba(0,0,0,.42)";
   c.beginPath(); c.ellipse(240, GROUND_Y+8, m.w*L.scale/2 + 4, 10, 0, 0, 7); c.fill();
   const hue = st.hue ?? 0;
-  if (st.neon) drawNeonC(c, bx+8, bx2-8, hue, k, GROUND_Y + 2);
+  const nHue = st.neonHue ?? hue;                 // eigene Neonfarbe (28.10.), sonst Lackfarbe
+  if (st.neon) drawNeonC(c, bx+8, bx2-8, nHue, k, GROUND_Y + 2);
   // Anker aus der Alpha-Kontur: Auspuff an echter Heckkante + Heck-Unterkante
   // (folgt der Tieferlegung), Spoiler am vermessenen Deck-Punkt.
   const M = measureSprite(im, m);
@@ -997,7 +1121,17 @@ async function spriteCanvas(key, st){
                  sillC ];
   // Heck-Endrohre HINTER dem Body (ragen seitlich raus) — die Sidepipe (ex 3)
   // dagegen NACH dem Body, sonst verschluckt der Schweller das Längsrohr.
-  if ((st.exhaust ?? 0) < 3) drawExhaustC(c, rearX + 4, st.exhaust ?? 0, k, exY, tube);
+  // Kontur-Helfer (Canvas-Koordinaten): Oberkante je x — Spoiler sitzen AUF dem Blech
+  const srcX = xc => Math.max(0, Math.min(m.w - 1, Math.round((xc - L.xoff) / L.scale)));
+  const topC = xc => { const t = M?.top?.[srcX(xc)]; return t >= 0 ? L.yoff + t*L.scale + dropPx : null; };
+  const ex = st.exhaust ?? 0;
+  if (ex < 3){
+    // Endrohr kommt UNTER der Heckschürze heraus: Höhe = Schürzen-Unterkante, x = Heck-Kontur
+    // in genau dieser Zeile (vorher feste Höhe → Rohr hing frei unterm Heck)
+    const tip = exhaustAnchor(M, L, ex, k, dropPx);
+    if (tip) drawExhaustTip(c, tip.x, tip.y, ex, k);
+    else drawExhaustC(c, rearX + 4, ex, k, exY, tube);
+  }
   // Foto-Räder im QUELLRAUM pixelgenau ausradieren: Voll-Scheibe nur bis zur
   // Kotflügel-Kante (wd.r, gekappt); im Ring bis zum vollen Reifen (er+6)
   // fliegt nur was NICHT Lack ist (Reifen dunkel, Felge grau/weiss) und unter
@@ -1057,13 +1191,14 @@ async function spriteCanvas(key, st){
   }
   sc.putImageData(sd, 0, 0);
   c.drawImage(srcCv, L.xoff, L.yoff + dropPx, m.w*L.scale, m.h*L.scale);
-  if (M && M.deckY >= 0)   // Spoiler-Lackteile bekommen den Farbton direkt (hue-Param)
-    drawSpoilerC(c, L.xoff + (M.deckX + (m.sox || 0))*L.scale,
-                 L.yoff + (M.deckY + (m.soy || 0))*L.scale + dropPx, st.spoiler ?? 0, k, m.wing, hue);
+  if (M && M.top && !m.wing && (st.spoiler ?? 0)){
+    const x0c = L.xoff + M.x0*L.scale, Lc = (M.x1 - M.x0)*L.scale;
+    drawSpoilerFit(c, { x0c, Lc, topC }, st.spoiler, k, hue);
+  }
   drawBodykitC(c, L, m, kitFoto ? 0 : (st.kit ?? 0), k, dropPx, whl, M);
   if ((st.exhaust ?? 0) === 3) drawExhaustC(c, rearX + 4, 3, k, exY, tube);
   // Neon-Röhre am Schweller zwischen den Radhäusern (an der gemessenen Schweller-Linie)
-  if (st.neon) drawNeonTube(c, tube[0] + 4, tube[1] - 4, hue, sillC - 1);
+  if (st.neon) drawNeonTube(c, tube[0] + 4, tube[1] - 4, nHue, sillC - 1);
   // Räder werden von den AUFRUFERN HINTER die Karosserie gelegt (durchs
   // Radhaus-Loch sichtbar) — so deckt der Kotflügel das Rad bei Tieferlegung
   // wie beim echten Auto, statt dass das Rad über dem Blech klebt.
@@ -1088,42 +1223,38 @@ function drawBodykitC(c, L, m, kit, k, dropPx, whl, M){
   // hingen sie auf fixer Höhe frei unterm Auto («schwebendes Street-Kit»).
   const noseX = Math.min(L.xoff + (M?.noseX ?? m.w)*s, 480 - 28*k);
   const rearX = Math.max(L.xoff + (M?.rearX ?? 0)*s, 24*k);
-  const yCl   = v => Math.min(v, GROUND_Y + 2);
-  const noseY = yCl(M && M.noseBot >= 0 ? yo + M.noseBot*s : AXLE_Y + 22 + dropPx);
-  const rearY = yCl(M && M.rearBot >= 0 ? yo + M.rearBot*s : AXLE_Y + 22 + dropPx);
+  // Kit-Teile nie unter ~60 % Radradius unter der Achse (vorher Bodenhöhe → Leiste am Boden)
+  const yCl   = v => Math.min(v, AXLE_Y + 17 + dropPx);
+  const noseY = yCl(M && M.noseY >= 0 ? yo + M.noseY*s : M && M.noseBot >= 0 ? yo + M.noseBot*s : AXLE_Y + 15 + dropPx);
+  const rearY = yCl(M && M.bumperY >= 0 ? yo + M.bumperY*s : M && M.rearBot >= 0 ? yo + M.rearBot*s : AXLE_Y + 15 + dropPx);
   const sillY = yCl(M && M.sillBot >= 0 ? yo + M.sillBot*s : AXLE_Y + 22 + dropPx);
-  // Front-Splitter: klebt an der Bumper-Unterkante, ragt DEUTLICH vor —
-  // helle Oberkante + Alu-Streben, sonst säuft Carbon auf Dunkel ab.
+  // Front-Splitter (28.10. kompakt): Carbon-Lippe an der Schürzen-Unterkante, ragt nur
+  // knapp vor; x = Kontur in genau dieser Höhe (nicht die längste Stelle der Nase)
+  const nX = M && M.noseRX >= 0 ? Math.min(L.xoff + M.noseRX*s, 480 - 8*k) : noseX;
   c.fillStyle = "#1a2027";
   c.beginPath();
-  c.moveTo(noseX-46*k, noseY-3); c.lineTo(noseX+22*k, noseY-4*k);
-  c.lineTo(noseX+26*k, noseY+4*k); c.lineTo(noseX-44*k, noseY+6*k);
+  c.moveTo(nX-40*k, noseY-2*k); c.lineTo(nX+5*k, noseY-2*k);
+  c.lineTo(nX+7*k, noseY+1.5*k); c.lineTo(nX-38*k, noseY+2*k);
   c.closePath(); c.fill();
-  c.fillStyle = "rgba(255,255,255,.38)";
-  c.beginPath();
-  c.moveTo(noseX-46*k, noseY-3); c.lineTo(noseX+22*k, noseY-4*k);
-  c.lineTo(noseX+22.6*k, noseY-2*k); c.lineTo(noseX-46*k, noseY-1);
-  c.closePath(); c.fill();
-  c.fillStyle = "#59636e";
-  c.fillRect(noseX+6*k, noseY-2*k, 2.4*k, 7*k);
-  c.fillRect(noseX+15*k, noseY-2.6*k, 2.4*k, 8*k);
-  // Heck-Diffusor: an der Heckschürzen-Unterkante, ragt nach hinten + Finnen
+  c.fillStyle = "rgba(255,255,255,.35)";
+  c.fillRect(nX-40*k, noseY-2*k, 45*k, 1.2);
+  // Heck-Diffusor: an der Schürzen-Unterkante, kurze Finnen nach oben
+  const rX = M && M.bumperY >= 0 && M.left?.[M.bumperY] >= 0 ? Math.max(L.xoff + M.left[M.bumperY]*s, 8*k) : rearX;
   c.fillStyle = "#1a2027";
   c.beginPath();
-  c.moveTo(rearX-20*k, rearY-4*k); c.lineTo(rearX+30*k, rearY-3);
-  c.lineTo(rearX+30*k, rearY+4*k); c.lineTo(rearX-22*k, rearY+7*k);
+  c.moveTo(rX-5*k, rearY-2*k); c.lineTo(rX+34*k, rearY-2*k);
+  c.lineTo(rX+34*k, rearY+2*k); c.lineTo(rX-4*k, rearY+2.5*k);
   c.closePath(); c.fill();
-  c.fillStyle = "rgba(255,255,255,.30)";
-  c.fillRect(rearX-20*k, rearY-4*k, 50*k, 1.8);
+  c.fillStyle = "rgba(255,255,255,.28)";
+  c.fillRect(rX-5*k, rearY-2*k, 39*k, 1.2);
   c.fillStyle = "#0b0e12";
-  for (let i = 0; i < 4; i++) c.fillRect(rearX-16*k + i*11*k, rearY-1, 2.6*k, 8*k+2);
+  for (let i = 0; i < 4; i++) c.fillRect(rX + i*8*k, rearY-4*k, 1.8*k, 4*k);
   // Seitenschweller: direkt unter der Schweller-Linie, mit heller Kante
   const x1 = L.xoff + (whl[0].x + (whl[0].er ?? whl[0].r) + 4)*s;
   const x2 = L.xoff + (whl[1].x - (whl[1].er ?? whl[1].r) - 4)*s;
   if (x2 > x1){
-    c.fillStyle = "#1a2027"; rrC(c, x1, sillY-3, x2-x1, 9*k+3, 3*k); c.fill();
-    c.fillStyle = "rgba(255,255,255,.30)"; c.fillRect(x1+2, sillY-1.5, x2-x1-4, 2);
-    c.fillStyle = "rgba(255,255,255,.10)"; c.fillRect(x1+2, sillY+5*k, x2-x1-4, 1.4);
+    c.fillStyle = "#1a2027"; rrC(c, x1, sillY-3, x2-x1, 4.5*k+3, 2*k); c.fill();
+    c.fillStyle = "rgba(255,255,255,.30)"; c.fillRect(x1+2, sillY-1.5, x2-x1-4, 1.6);
   }
   if (kit >= 2){ // Widebody: FETTE Flares über beiden Radhäusern (+ Nieten)
     for (let i = 0; i < 2; i++){
@@ -1288,12 +1419,18 @@ const SND_CAR = { // Feintuning einzelner Autos
   bullet: {fm:1.60, sub:.12, dist:3.2, lp:1.45},  // Monster-Kei: hell + böse
   kuro:   {fm:0.56, sub:.68, dist:6.4, lp:0.55},  // Vault-Dämon: höllisch tief
 };
-// Auspuff-Kit (Serie/Duplex/Big Bore) macht lauter, bassiger, dreckiger
-function soundProfile(defKey, exhaust = 0){
+// Klangfamilie nach Aussehen (28.10., Claw): JDM = Standard (hochdrehend, Ansaug-Rasp,
+// Turbo-Flattern), Muscle = V8-Blubbern mit Leerlauf-Lope, Exot = bisheriger Klang (V10/GT1/Mittelmotor)
+const SND_FAM_SHAPE = { muscle:"muscle", drag:"muscle", v10:"exotic", gt1:"exotic" };
+const SND_FAM_CAR = { spectre:"exotic", eklipse:"exotic", zenith:"exotic", kuro:"jdm" };
+const soundFamily = k => SND_FAM_CAR[k] ?? SND_FAM_SHAPE[CAR_DEFS[k].shape] ?? "jdm";
+// Auspuff-Kit (Serie/Duplex/Big Bore) macht lauter, bassiger, dreckiger; turbo = gekaufte Stage (0–3)
+function soundProfile(defKey, exhaust = 0, turbo = 0){
   const base = { ...SND_SHAPE[CAR_DEFS[defKey].shape], ...(SND_CAR[defKey] || {}) };
   return { fm: base.fm, sub: Math.min(.8, base.sub + exhaust*0.12),
            dist: base.dist + exhaust*1.0, lp: base.lp * (1 - exhaust*0.08),
-           vol: 1 + exhaust*0.20 };
+           vol: 1 + exhaust*0.20, fam: soundFamily(defKey), turbo: turbo|0,
+           redline: CAR_DEFS[defKey].redline };
 }
 
 // Spitzenleistung in PS (aus der Drehmomentkurve, optional mit Upgrade-Faktor)

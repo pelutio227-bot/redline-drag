@@ -106,6 +106,20 @@
   .seg button{flex:1;padding:10px 6px;min-height:44px;border-radius:9px;font-size:12.5px;font-weight:700;color:var(--mut)}
   .seg button.on{background:var(--red);color:#fff}
   .seg button.prev{background:transparent;color:var(--txt);box-shadow:inset 0 0 0 2px var(--grn);border-radius:9px}
+  /* Style-Tab (28.10.): Farbfelder, PROBE-Badge, Kauf-Feier */
+  .swatches{display:flex;flex-wrap:wrap;gap:9px;margin:4px 0 10px}
+  .sw{width:40px;height:40px;min-width:40px;border-radius:50%;border:2px solid rgba(255,255,255,.14);box-shadow:inset 0 -6px 10px rgba(0,0,0,.35),inset 0 4px 8px rgba(255,255,255,.25);transition:transform .12s}
+  .sw.sel{border-color:#fff;transform:scale(1.12);box-shadow:0 0 0 3px rgba(255,255,255,.18),0 0 18px var(--swc)}
+  .sw.neon{box-shadow:0 0 12px var(--swc),inset 0 0 6px rgba(255,255,255,.5)}
+  .sw.off{background:var(--panel2);color:var(--mut);font-size:11px;font-weight:800}
+  .stylehint{font-size:12px;color:var(--grn);font-weight:700;margin:-2px 0 8px}
+  .gcarwrap{position:relative;display:inline-block}
+  #gProbe{position:absolute;top:6px;right:4px;display:none;padding:3px 9px;border-radius:999px;background:rgba(43,224,94,.16);border:1px solid rgba(43,224,94,.6);color:var(--grn);font-size:11px;font-weight:900;letter-spacing:.14em}
+  .gcarwrap.probe #gProbe{display:block}
+  .gcarwrap.boom #gCar{animation:carBoom .7s ease-out}
+  @keyframes carBoom{0%{transform:scale(1);filter:brightness(1)}25%{transform:scale(1.08);filter:brightness(1.8)}100%{transform:scale(1);filter:brightness(1)}}
+  .spark{position:absolute;width:8px;height:8px;border-radius:50%;background:#FFD34D;box-shadow:0 0 10px #FFD34D;pointer-events:none;animation:spark .8s ease-out forwards}
+  @keyframes spark{to{transform:translate(var(--dx),var(--dy)) scale(.2);opacity:0}}
   .buybar{display:flex;align-items:center;gap:10px;margin-top:10px;padding:9px 12px;background:var(--panel2);border-radius:10px;font-size:12.5px}
   .buybar span{flex:1;color:var(--mut)}
   .buybar .buy{padding:8px 14px}
@@ -424,7 +438,7 @@
 <div class="screen" id="garage">
   <div class="hd"><button class="back" data-go="menu">‹</button><h2>Garage</h2><div class="cash" style="position:static" id="cash3">0</div></div>
   <div class="scroll">
-    <div class="preview"><img id="gCar" alt=""><div id="gCarName"></div></div>
+    <div class="preview"><div class="gcarwrap"><img id="gCar" alt=""><span id="gProbe">PROBE</span></div><div id="gCarName"></div></div>
     <div class="tabs" id="gTabs">
       <button data-t="cars" class="on">Autos</button>
       <button data-t="up">Upgrades</button>
@@ -497,16 +511,16 @@
 <script>window.VAULT_LINK = "https://buy.stripe.com/5kQfZidi1fNdefBeus1kA02";</script>
 <script src="js/vendor/supabase.js?v=15"></script>
 <script src="js/vendor/qrcode.js?v=17"></script>
-<script src="assets/cars/meta.js?v=24"></script>
+<script src="assets/cars/meta.js?v=25"></script>
 <script src="assets/cars/kitmeta.js?v=24"></script>
-<script src="js/cars.js?v=25"></script>
-<script src="js/audio.js?v=26"></script>
-<script src="js/sim.js?v=25"></script>
+<script src="js/cars.js?v=26"></script>
+<script src="js/audio.js?v=27"></script>
+<script src="js/sim.js?v=26"></script>
 <script src="js/career.js?v=25"></script>
-<script src="js/game.js?v=26"></script>
+<script src="js/game.js?v=27"></script>
 <script src="js/cloud.js?v=20"></script>
-<script src="js/duo.js?v=25"></script>
-<script src="js/ui.js?v=25"></script>
+<script src="js/duo.js?v=26"></script>
+<script src="js/ui.js?v=26"></script>
 <script>
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>

@@ -52,7 +52,7 @@ const AudioSys = (() => {
 
   // ── Motor ──
   // Sound-Profil pro Auto (aus cars.js soundProfile()): fm/sub/dist/lp/vol
-  let prof = { fm: 1, sub: 0.28, dist: 3.4, lp: 1, vol: 1 };
+  let prof = { fm: 1, sub: 0.28, dist: 3.4, lp: 1, vol: 1, fam: "jdm", turbo: 0, redline: 7000 };
   function startEngine(p){
     if (p) prof = p;
     if (!ensure()) return;
@@ -73,6 +73,24 @@ const AudioSys = (() => {
     noiseSrc.connect(bp).connect(tg).connect(master);
     o1.start(); o2.start(); noiseSrc.start();
     eng = { o1, o2, noise: noiseSrc, lp, g, tg, bp };
+    if (prof.fam === "jdm"){
+      // Ansaug-Rasp: 2. Harmonische durch resonanten Bandpass, öffnet ab ~60 % Drehzahl («VTEC»)
+      const o3 = ctx.createOscillator(); o3.type = "sawtooth";
+      const ib = ctx.createBiquadFilter(); ib.type = "bandpass"; ib.Q.value = 3.2; ib.frequency.value = 900;
+      const ig = ctx.createGain(); ig.gain.value = 0;
+      o3.connect(ib).connect(ig).connect(g);
+      o3.start(); Object.assign(eng, { o3, ib, ig });
+    } else if (prof.fam === "muscle"){
+      // V8-Lope: unregelmässige Zündfolge als Amplituden-Modulation vor der Verzerrung —
+      // im Leerlauf deutlich «blubb-blubb», unter Volllast fast weg
+      const pre = ctx.createGain(); pre.gain.value = 0.7;
+      o1g.disconnect(); o2g.disconnect();
+      o1g.connect(pre); o2g.connect(pre); pre.connect(sh);
+      const lfo = ctx.createOscillator(); lfo.type = "triangle"; lfo.frequency.value = 6;
+      const depth = ctx.createGain(); depth.gain.value = 0.3;
+      lfo.connect(depth).connect(pre.gain);
+      lfo.start(); Object.assign(eng, { lfo, depth });
+    }
   }
   // Performance (28.10.): nicht jeden Frame (120 Hz) neue Automations-Events stapeln —
   // ~30 Updates/s reichen (setTargetAtTime glättet ohnehin), WebKit-Audio-Thread bleibt frei
@@ -85,16 +103,28 @@ const AudioSys = (() => {
     const f = Math.max(24, rpm/60*2*prof.fm);    // Zündimpulse × Auto-Charakter
     eng.o1.frequency.setTargetAtTime(f, t, .02);
     eng.o2.frequency.setTargetAtTime(f/2, t, .02);
+    const rf = Math.min(1.1, rpm/(prof.redline||7000));
+    if (eng.o3){
+      eng.o3.frequency.setTargetAtTime(f*2, t, .02);
+      eng.ib.frequency.setTargetAtTime(f*2.4, t, .03);
+      eng.ig.gain.setTargetAtTime(Math.max(0, rf - 0.58)*0.9*(0.4 + throttle*0.6), t, .04);
+    }
+    if (eng.lfo){
+      eng.lfo.frequency.setTargetAtTime(Math.max(4, f/4), t, .03);
+      eng.depth.gain.setTargetAtTime(0.32*Math.max(0.15, 1 - rf*1.1)*(1 - throttle*0.5), t, .05);
+    }
     eng.lp.frequency.setTargetAtTime((300 + throttle*1400 + rpm*0.09)*prof.lp, t, .03);
     eng.g.gain.setTargetAtTime((0.10 + throttle*0.16 + (rpm/9000)*0.06)*prof.vol, t, .03);
-    eng.tg.gain.setTargetAtTime(turbo*0.05, t, .05);
-    eng.bp.frequency.setTargetAtTime(900 + rpm*0.35, t, .05);
+    // Lader-Pfeifen: lauter + höher mit jeder Stage
+    const ts = prof.turbo || (turbo ? 1 : 0);
+    eng.tg.gain.setTargetAtTime(turbo*(0.025 + ts*0.017), t, .05);
+    eng.bp.frequency.setTargetAtTime((900 + rpm*0.35)*(1 + ts*0.12), t, .05);
   }
   function stopEngine(){
     if (!eng) return;
     // ALLE Quellen stoppen — die Turbo-Noise-Schleife lief sonst ewig weiter
     // und stapelte sich pro Rennen zu einem immer lauteren Dauer-Zischen.
-    try { eng.o1.stop(); eng.o2.stop(); eng.noise.stop(); } catch {}
+    try { eng.o1.stop(); eng.o2.stop(); eng.noise.stop(); eng.o3?.stop(); eng.lfo?.stop(); } catch {}
     try { eng.g.disconnect(); eng.tg.disconnect(); } catch {}
     eng = null; engLast = 0;
   }
@@ -125,16 +155,16 @@ const AudioSys = (() => {
   function shiftPop(exhaust){ // Backfire — grösser mit dickerem Auspuff
     noiseBurst(0.14 + exhaust*0.06, "lowpass", 300 + exhaust*180, 1, 0.5 + exhaust*0.22);
   }
-  function bov(){   // Blow-off «Ptss-ss-ss»: Pitch fällt + Ventil-Flattern — HD-Version
+  function bov(level = 1, k = 1){   // Blow-off «Ptss-ss-ss»: Pitch fällt + Ventil-Flattern — HD-Version
     if (!ensure()) return;
-    const t0 = ctx.currentTime, dur = 0.5;
+    const t0 = ctx.currentTime, dur = 0.3 + 0.2*level;
     const src = ctx.createBufferSource(); src.buffer = noise();
     const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 2.4;
     bp.frequency.setValueAtTime(4200, t0);
     bp.frequency.exponentialRampToValueAtTime(1100, t0 + dur);
     const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 800;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.55, t0);
+    g.gain.setValueAtTime(0.55*level*k, t0);
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
     const lfo = ctx.createOscillator(); lfo.type = "square";      // Flattern
     lfo.frequency.setValueAtTime(30, t0);
@@ -143,6 +173,48 @@ const AudioSys = (() => {
     lfo.connect(lg).connect(g.gain);
     src.connect(bp); bp.connect(hp); hp.connect(g); g.connect(master);
     src.start(t0, Math.random()*0.4, dur); lfo.start(t0); lfo.stop(t0 + dur);
+  }
+  // Turbo beim Gas-Wegnehmen/Schalten (stage 1–3, boost 0–1 = Ladedruck):
+  // JDM → Kompressor-Flattern «tu-tu-tu-tu» (Pumpstoss), wird mit der Stage länger, tiefer, satter;
+  // Muscle/Exot → Blow-off-«Pssh»
+  function turboRelease(stage, boost = 1){
+    if (!ensure() || !stage) return;
+    const k = Math.max(0.35, boost);
+    if (prof.fam !== "jdm"){ bov(0.55 + stage*0.25, k); return; }
+    const t0 = ctx.currentTime, dur = 0.32 + stage*0.16;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t0);
+    out.gain.exponentialRampToValueAtTime((0.30 + stage*0.14)*k, t0 + 0.015);
+    out.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    out.connect(master);
+    // Flatter-Hüllkurve: Rechteck-LFO zerhackt das Signal, Takt fällt (Lader dreht runter)
+    const chop = ctx.createGain(); chop.gain.value = 0.5;
+    const lfo = ctx.createOscillator(); lfo.type = "square";
+    lfo.frequency.setValueAtTime(19 + stage*2, t0);
+    lfo.frequency.exponentialRampToValueAtTime(8 + stage, t0 + dur);
+    const lg = ctx.createGain(); lg.gain.value = 0.5;
+    lfo.connect(lg).connect(chop.gain);
+    chop.connect(out);
+    // Luft-Anteil (zischend) + Druck-Anteil (tiefes «Wummern», ab Stage 2 deutlich)
+    const air = ctx.createBufferSource(); air.buffer = noise();
+    const ab = ctx.createBiquadFilter(); ab.type = "bandpass"; ab.Q.value = 1.6;
+    ab.frequency.setValueAtTime(1500 - stage*150, t0);
+    ab.frequency.exponentialRampToValueAtTime(700 - stage*80, t0 + dur);
+    const ag = ctx.createGain(); ag.gain.value = 0.55;
+    air.connect(ab).connect(ag).connect(chop);
+    const thump = ctx.createBufferSource(); thump.buffer = noise();
+    const tl = ctx.createBiquadFilter(); tl.type = "lowpass"; tl.frequency.value = 260 + stage*30; tl.Q.value = 2;
+    const tgn = ctx.createGain(); tgn.gain.value = 0.35 + stage*0.35;
+    thump.connect(tl).connect(tgn).connect(chop);
+    const off = Math.random()*0.4;
+    air.start(t0, off, dur); thump.start(t0, off, dur); lfo.start(t0); lfo.stop(t0 + dur);
+    // Stage 3: zusätzlich das Runterpfeifen des grossen Laders
+    if (stage >= 3){
+      const w = ctx.createOscillator(); w.type = "sine";
+      w.frequency.setValueAtTime(3200, t0); w.frequency.exponentialRampToValueAtTime(900, t0 + dur*1.2);
+      const wg = ctx.createGain(); wg.gain.setValueAtTime(0.05*k, t0); wg.gain.exponentialRampToValueAtTime(0.0005, t0 + dur*1.2);
+      w.connect(wg).connect(master); w.start(t0); w.stop(t0 + dur*1.2);
+    }
   }
   // Anti-Lag-/Backfire-KNALL: tiefer Druckstoss + Knack-Transient
   function bang(big = 1){
@@ -182,5 +254,5 @@ const AudioSys = (() => {
   }
   function loseThud(){ beep(140, .4, .35); setTimeout(()=>beep(110, .5, .3), 180); }
 
-  return { unlock, startEngine, engine, stopEngine, shiftPop, bov, bang, whoosh, nosHiss, skid, beep, winJingle, loseThud };
+  return { unlock, startEngine, engine, stopEngine, shiftPop, bov, turboRelease, bang, whoosh, nosHiss, skid, beep, winJingle, loseThud };
 })();

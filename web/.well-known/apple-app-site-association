@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["VZUGTLLK9A.com.pelutio.redline"],
+        "components": [
+          { "/": "/duo/*", "comment": "iPhone Duo: QR/Link öffnet die App direkt in der Lobby" }
+        ]
+      }
+    ]
+  }
+}

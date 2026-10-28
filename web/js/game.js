@@ -71,11 +71,12 @@ const Race = (() => {
       oBody, oWheel: wheelSprite(oStyle.rim??1, 40),
       oAx: carAx(opp.car, oSpec.def), oPitch:0, oPitchV:0,
       opp, doneT:null, flash:0, exh: style.exhaust ?? 0,
-      exTipF: exhaustXFrac(opts.carKey, spec.def), neon: !!style.neon, hue: style.hue ?? 0,
+      exTipF: exhaustXFrac(opts.carKey, spec.def), neon: !!style.neon, hue: style.neonHue ?? style.hue ?? 0,
       duo: opts.duo ?? null, remote: null, waiting: !!opts.duo, ended:false,
     };
     input.gas = false; input.nos = false; input.shiftReq = false;
-    AudioSys.unlock(); AudioSys.startEngine(soundProfile(opts.carKey, style.exhaust ?? 0));
+    AudioSys.unlock(); AudioSys.startEngine(soundProfile(opts.carKey, style.exhaust ?? 0, spec.turbo));
+    lastGas = false; flutterAt = -1;
     const sh = document.getElementById("pShift"); if (sh) sh.dataset.gear = "0";
     parts.length = 0;
     lastT = performance.now(); acc = 0;
@@ -117,7 +118,7 @@ const Race = (() => {
       onEvent?.({ launch:true });
     }
     if (ev?.shift){
-      AudioSys.shiftPop(st.exh); if (p.spec.turbo) AudioSys.bov();
+      AudioSys.shiftPop(st.exh); if (p.spec.turbo) turboRelease(p, 1);
       if (ev.shift === "PERFECT"){
         st.shake = Math.min(1, (st.shake||0) + 0.25);
         st.flash = Math.max(st.flash||0, 0.2);
@@ -167,6 +168,14 @@ const Race = (() => {
     if (st.green == null) return;
     aiTick(st.ai, dt, st.t - st.green, true);
   }
+  // Gas weg / Schalten bei Ladedruck → Turbo-Flattern (JDM) bzw. Blow-off (Muscle/Exot).
+  // Nur mit gekauftem Turbo; Stage bestimmt Stärke. Max. alle 0.35 s.
+  let lastGas = false, flutterAt = -1;
+  function turboRelease(p, boost){
+    if (st.t - flutterAt < 0.35) return;
+    flutterAt = st.t;
+    AudioSys.turboRelease(p.spec.turbo, Math.min(1, boost));
+  }
   function finish(){
     const p = st.p, o = st.ai.racer;
     AudioSys.stopEngine(); AudioSys.skid(false);
@@ -193,6 +202,9 @@ const Race = (() => {
     draw(dt);
     const p = st.p;
     AudioSys.engine(p.rpm, p.throttle, p.spec.turbo ? Math.min(1, p.throttle*(p.rpm/p.spec.def.redline)) : 0);
+    if (lastGas && !input.gas && p.spec.turbo && p.rpm > p.spec.def.redline*0.55 && !p.finished)
+      turboRelease(p, p.rpm/p.spec.def.redline);
+    lastGas = input.gas;
     AudioSys.skid(p.spin > 0.25 && p.launched && !p.finished);
   }
 
@@ -662,29 +674,33 @@ const Race = (() => {
     }
     g.drawImage(tachoCache.cv, bx, by, bs, bs);
     g.textBaseline = "middle";   // wie bisher nach den Ziffern (Zone-Hinweise darunter)
+    // Hinweis-Zeile: im Hochformat ÜBER dem NOS-Knopf (CSS: bottom safe+164, 84 hoch),
+    // sonst verdeckte er auf schmalen Displays (Cover-Display, iPhone mini) den Text
+    let hy = cy - R - 30;
+    if (W < 900 && H > W) hy = Math.min(hy, H - safeBottom() - 164 - 84 - 22);
     // ZU-SPÄT / Zone-Feedback
     const inZone = p.rpm>=z0 && p.rpm<=z1;
     if (!p.launched && st.phase !== "done"){
       if (inZone){
         g.fillStyle = `rgba(43,224,94,${0.55+0.45*Math.sin(st.t*20)})`;
         g.font = "900 17px system-ui"; g.textAlign="center";
-        g.fillText("LAUNCH BEREIT — HALTEN!", cxx, cy - R - 30);
+        g.fillText("LAUNCH BEREIT — HALTEN!", cxx, hy);
       } else if (p.rpm > z1){
         g.fillStyle = "#FF2D40"; g.font = "900 17px system-ui"; g.textAlign="center";
-        g.fillText("ZU HOCH — LOSLASSEN!", cxx, cy - R - 30);
+        g.fillText("ZU HOCH — LOSLASSEN!", cxx, hy);
       } else if (p.rpm > def.idle + 200){
         g.fillStyle = "rgba(255,255,255,.6)"; g.font = "800 14px system-ui"; g.textAlign="center";
-        g.fillText("höher in die grüne Zone …", cxx, cy - R - 30);
+        g.fillText("höher in die grüne Zone …", cxx, hy);
       }
     }
     if (p.launched && !p.finished && p.gear < p.spec.gears.length-1){
       if (inZone){
         g.fillStyle = `rgba(43,224,94,${0.5+0.5*Math.sin(st.t*22)})`;
         g.font = "900 16px system-ui"; g.textAlign="center";
-        g.fillText("JETZT SCHALTEN", cxx, cy - R - 30);
+        g.fillText("JETZT SCHALTEN", cxx, hy);
       } else if (p.rpm > z1){
         g.fillStyle = "#FF2D40"; g.font = "900 16px system-ui"; g.textAlign="center";
-        g.fillText(p.rpm >= def.redline ? "BEGRENZER!" : "ZU SPÄT!", cxx, cy - R - 30);
+        g.fillText(p.rpm >= def.redline ? "BEGRENZER!" : "ZU SPÄT!", cxx, hy);
       }
     }
     // Nadel
@@ -724,13 +740,13 @@ const Race = (() => {
     // Launch-Feedback (PERFECT START / GUTER START)
     if (p.launchQ && p.launchAt && st.t - p.launchAt < 1.5){
       g.fillStyle = "#2BE05E"; g.font = "900 22px system-ui"; g.textAlign = "center";
-      g.fillText(p.launchQ + " +BOOST", cxx, cy - R - 54);
+      g.fillText(p.launchQ + " +BOOST", cxx, hy - 26);
     }
     // Schaltqualität
     if (p.lastShiftQ && p.shifting > 0){
       const col = {PERFECT:"#2BE05E", GUT:"#FFB020", "SPÄT":"#FF2D40", "FRÜH":"#8E92A3"}[p.lastShiftQ];
       g.fillStyle = col; g.font="900 24px system-ui"; g.textAlign="center";
-      g.fillText(p.lastShiftQ + (p.lastShiftQ==="PERFECT" ? " +BOOST" : ""), cxx, cy - R - 52);
+      g.fillText(p.lastShiftQ + (p.lastShiftQ==="PERFECT" ? " +BOOST" : ""), cxx, hy - 26);
     }
   }
 
@@ -743,6 +759,16 @@ const Race = (() => {
       window.addEventListener("resize", () => { _safeTop = null; }, { once:true });
     }
     return _safeTop;
+  }
+  let _safeBot = null;
+  function safeBottom(){
+    if (_safeBot == null){
+      const d = document.createElement("div");
+      d.style.cssText = "position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px);visibility:hidden";
+      document.body.appendChild(d); _safeBot = d.getBoundingClientRect().height || 0; d.remove();
+      window.addEventListener("resize", () => { _safeBot = null; }, { once:true });
+    }
+    return _safeBot;
   }
   function drawTop(){
     const p = st.p, o = st.ai.racer;
