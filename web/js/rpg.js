@@ -18,7 +18,7 @@ const CLASSES = {
             passive:{ n:"Nocken-Kick", d:"+6 % Leistung im oberen Drehzahlband", fx:{ powHi:0.06 } } },
   muscle: { name:"MUSCLE", land:"USA",         col:"#FFB020", icon:"★",
             passive:{ n:"Holeshot", d:"Start-Boost +25 %, +4 % Drehmoment untenrum", fx:{ launchMul:0.25, powLo:0.04 } } },
-  german: { name:"GERMAN", land:"Deutschland", col:"#6EA8FF", icon:"✠",
+  german: { name:"GERMAN", land:"Deutschland", col:"#6EA8FF", icon:"⚙",
             passive:{ n:"Präzision", d:"Grüne Schaltzone 15 % breiter", fx:{ zoneMul:0.15 } } },
 };
 // Herkunft pro Auto (nach Look/Vorbild)
