@@ -100,7 +100,20 @@ const Rivals = (() => {
     await loadFriends();
     if (!ch) connect();
     booting = false;
+    pushSetup();
   }
+  // Push (nur App): Token beim Server hinterlegen; Freunde erfahren per Push, dass ich online bin (Server drosselt)
+  async function pushSetup(){
+    try {
+      const t = await window.NativeBridge?.pushRegister?.();
+      if (t) await rpc("push_register", { p_pid: pid(), p_token: t, p_platform: window.NativeBridge.platform + "|" + (window.I18N?.lang ?? "de") });
+    } catch {}
+    notify("online");
+  }
+  function notify(type, to){
+    try { Cloud.sb.functions.invoke("redline-push", { body: { type, pid: pid(), to } }).catch(() => {}); } catch {}
+  }
+  function poke(fp){ notify("poke", fp); UI.toast(`🔔 ${fname(fp)} bekommt eine Push-Nachricht`); }
   async function loadFriends(){
     try { friends = (await rpc("friend_list", { p_pid: pid() })) || []; S().friends = friends.map(f => ({ pid: f.pid, name: f.name })); UI.persist(); }
     catch { friends = S().friends || []; }
@@ -115,6 +128,9 @@ const Rivals = (() => {
       .on("broadcast", { event: "ok" }, mine(onOk))
       .on("broadcast", { event: "bye" }, mine(onBye))
       .on("broadcast", { event: "go" }, mine(onGo))
+      .on("broadcast", { event: "tuning" }, mine(p => { if (phase === "match" && p.mid === m?.mid){ m.oppTuning = true; m.okMe = m.okOpp = false; extend(); render(); } }))
+      .on("broadcast", { event: "card" }, mine(p => { if (phase === "match" && p.mid === m?.mid){ m.opp = p.card; m.oppTuning = false; m.okMe = m.okOpp = false; render();
+        UI.toast(`🔧 ${p.card.name} hat nachgerüstet`); } }))
       .on("broadcast", { event: "fr" }, mine(() => loadFriends().then(render)))   // jemand hat mich als Freund hinzugefügt
       .on("presence", { event: "sync" }, onSync)
       .subscribe(st => {
@@ -253,15 +269,44 @@ const Rivals = (() => {
     clearTimeout(matchT);
     matchT = setTimeout(() => { if (phase === "invite"){ UI.toast(`${fname(fp)} antwortet nicht.`); toHome("friends"); } }, 30000);
   }
+  // Revanche (Ergebnis-Bildschirm): gleiche Bedingungen oder Hardcore — Gegner muss annehmen, dann wie gewohnt zustimmen
+  function rematch(oppPid, oppName, prop){
+    if (!live) return UI.toast("Keine Verbindung.");
+    const p = presOf(oppPid);
+    if (!p) return UI.toast(`${oppName} ist nicht mehr online.`);
+    if (prop.mode === "hardcore" && hcReason()) return UI.toast(hcReason());
+    UI.show("rivals");
+    phase = "invite"; out = { to: oppPid, at: Date.now(), rematch: true, prop, name: oppName }; retrack();
+    send("inv", { to: oppPid, card: card(), rematch: true, prop });
+    render();
+    clearTimeout(matchT);
+    matchT = setTimeout(() => { if (phase === "invite"){ UI.toast(`${oppName} antwortet nicht.`); toHome(); } }, 30000);
+  }
   async function share(){
     if (!myCode) return;
-    const url = FRIEND_LINK(myCode), txt = `Fahr gegen mich in REDLINE! Mein Freundes-Code: ${myCode}`;
+    const url = FRIEND_LINK(myCode), txt = window.I18N ? I18N.t(`Fahr gegen mich in REDLINE! Mein Freundes-Code: ${myCode}`) : `Fahr gegen mich in REDLINE! Mein Freundes-Code: ${myCode}`;
     if (navigator.share){ try { await navigator.share({ title: "Redline", text: txt, url }); return; } catch {} }
     try { await navigator.clipboard.writeText(`${txt} · ${url}`); UI.toast("Link kopiert"); } catch { UI.toast("Code: " + myCode); }
   }
 
   // ── Einladung / Match ──────────────────────────────────────────────────────
   function onInvite(p){
+    // Revanche nach einem Rivalen-Rennen (auch ohne Freundschaft)
+    if (p.rematch){
+      if (busy()) return send("dec", { to: p.from, busy: true });
+      window.NativeBridge?.haptic?.("heavy"); AudioSys.vsSlam?.();
+      const c = p.card, P = p.prop || { mode: "cash", stake: 0 };
+      popup(`<b class="rv-pop-t">↺ ${esc(c.name)} will Revanche!</b>
+        <p>${P.mode === "hardcore" ? `<b style="color:#ff5468">☠ HARDCORE</b> — Auto gegen Auto` : P.stake ? `Einsatz <b>${fmt$(P.stake)}</b>` : "Um die Ehre"} · ${esc(CAR_DEFS[c.car]?.name ?? c.car)} LV ${c.lvl}</p>`,
+        [{ label: "Annehmen", go: () => {
+            if (busy()) return send("dec", { to: p.from, busy: true });
+            const mid = "rv" + Math.random().toString(36).slice(2, 10);
+            send("acc", { to: p.from, card: card(), mid });
+            UI.show("rivals"); enterMatch(mid, false, c, isFriend(p.from), P);
+          } },
+         { label: "Nein danke", go: () => send("dec", { to: p.from }), timeout: () => send("dec", { to: p.from }) }], 25000);
+      return;
+    }
     if (p.friend && isFriend(p.from)){
       if (busy() || phase === "search" && out) return send("dec", { to: p.from, busy: true });
       window.NativeBridge?.haptic?.("heavy"); AudioSys.vsSlam?.();
@@ -286,8 +331,8 @@ const Rivals = (() => {
   }
   function onAccept(p){
     if ((phase !== "search" && phase !== "invite") || out?.to !== p.from){ send("bye", { to: p.from, mid: p.mid }); return; }
-    const fr = !!out.friend; out = null;
-    enterMatch(p.mid, true, p.card, fr);
+    const fr = !!out.friend || isFriend(p.from), preset = out.prop; out = null;
+    enterMatch(p.mid, true, p.card, fr, preset);
   }
   function onDecline(p){
     if (out?.to !== p.from) return;
@@ -295,14 +340,25 @@ const Rivals = (() => {
     if (phase === "invite"){ UI.toast(p.busy ? `${fname(p.from)} ist gerade beschäftigt.` : `${fname(p.from)} hat abgelehnt.`); toHome("friends"); }
   }
   function defaultStake(opp){ return Math.min(S().money, opp.money ?? 0) >= 500 ? 500 : 0; }
-  function enterMatch(mid, host, opp, friend){
+  function enterMatch(mid, host, opp, friend, preset){
     phase = "match"; clearInterval(tickT); clearTimeout(matchT);
-    m = { mid, host, friend, opp, prop: { mode: "cash", stake: defaultStake(opp), rev: 0 }, okMe: false, okOpp: false, ack: false };
+    if (Duo.rivalMatch) Duo.leave(true);   // Ergebnis-Bildschirm des letzten Rennens verlassen
+    const prop = preset ? { mode: preset.mode, stake: Math.min(preset.stake || 0, S().money, opp.money ?? 0), rev: 1 } : { mode: "cash", stake: defaultStake(opp), rev: 0 };
+    m = { mid, host, friend, opp, prop, okMe: false, okOpp: false, ack: false };
     retrack();
     window.NativeBridge?.haptic?.("medium"); AudioSys.reveal?.("blue");
     matchT = setTimeout(() => { if (phase === "match"){ UI.toast("Zeit abgelaufen"); bye(); } }, 120000);
     render();
   }
+  const extend = () => { clearTimeout(matchT); matchT = setTimeout(() => { if (phase === "match"){ UI.toast("Zeit abgelaufen"); bye(); } }, 300000); };
+  // In der Garage nachrüsten, Match bleibt offen; zurück (‹) → neue Daten an den Gegner, beide stimmen neu zu
+  function tune(){
+    if (phase !== "match") return;
+    m.tuning = true; m.okMe = m.okOpp = false; extend();
+    send("tuning", { to: m.opp.pid, mid: m.mid });
+    UI.show("garage"); UI.toast("Nachrüsten — dann ‹ zurück zum Match");
+  }
+  const inMatch = () => phase === "match" && !!m;
   // Vorschlag ändern (beide Seiten dürfen) → Zustimmungen zurücksetzen
   function propose(mode, stake){
     if (phase !== "match") return;
@@ -374,6 +430,7 @@ const Rivals = (() => {
     if (!ch) boot();
     if (phase !== "match" && phase !== "invite") phase = "home";
     if (t) tab = t;
+    if (phase === "match" && m?.tuning){ m.tuning = false; m.okMe = m.okOpp = false; send("card", { to: m.opp.pid, mid: m.mid, card: card() }); }
     UI.show("rivals"); render();
   }
   function close(){
@@ -405,6 +462,20 @@ const Rivals = (() => {
       await new Promise(r => setTimeout(r, i < 10 ? 1500 : 4000));
     }
     show(null);
+  }
+  // Pink-Slip: alle im Hardcore verlorenen Autos (Server) — besessen und VOR dem Verlust erhalten → weg.
+  // Greift beim Start, nach jeder Abrechnung und nach Cloud-Abgleich (alter Spielstand bringt nichts zurück).
+  async function enforce(){
+    if (!window.Cloud?.sb || !S()?.pid) return [];
+    const gone = [];
+    try {
+      for (const l of (await rpc("wager_losses", { p_pid: S().pid })) || []){
+        const c = S().cars[l.car];
+        if (c?.owned && (c.got || 0) < l.at && UI.loseCar(l.car)) gone.push(`${CAR_DEFS[l.car]?.name ?? l.car} gehört ${l.to ?? "deinem Rivalen"}`);
+      }
+    } catch {}
+    if (gone.length) UI.toast("☠ " + gone.join(" · "));
+    return gone;
   }
   // XP für ein Rivalen-Rennen: zwischen Grün und Blau (nie mehr als Blau)
   function xpFor(win){
@@ -450,7 +521,7 @@ const Rivals = (() => {
       return;
     }
     if (phase === "invite"){
-      el.innerHTML = `<div class="rv-radar on"><i></i><i></i><i></i></div><p class="rv-tier">Warte auf ${esc(fname(out?.to))}…</p>
+      el.innerHTML = `<div class="rv-radar on"><i></i><i></i><i></i></div><p class="rv-tier">Warte auf ${esc(out?.name ?? fname(out?.to))}…</p>
         <p class="duostat">Die Herausforderung ist unterwegs.</p><button class="mbtn" id="rvCancel" style="width:100%;margin-top:12px">Abbrechen</button>`;
       $("rvCancel").onclick = () => { if (out) send("bye", { to: out.to, mid: "" }); toHome("friends"); };
       return;
@@ -488,7 +559,7 @@ const Rivals = (() => {
           ${list.length ? list.map(f => { const p = presOf(f.pid), on = !!p;
             return `<div class="rv-friend"><i class="dot ${on ? (p.busy ? "busy" : "on") : ""}"></i><div><b>${esc(f.name)}</b>
               <small>${on ? (p.busy ? "fährt gerade" : `online · ${esc(CAR_DEFS[p.car]?.name ?? "")} LV ${p.lvl}`) : "offline"}</small></div>
-              ${on && !p.busy ? `<button class="mbtn primary sm" data-ch="${esc(f.pid)}">⚔ Fahren</button>` : ""}
+              ${on && !p.busy ? `<button class="mbtn primary sm" data-ch="${esc(f.pid)}">⚔ Fahren</button>` : !on ? `<button class="mbtn sm" data-poke="${esc(f.pid)}">🔔 Anstupsen</button>` : ""}
               <button class="rv-x" data-rm="${esc(f.pid)}" aria-label="Entfernen">✕</button></div>`; }).join("")
             : `<p class="duostat">Noch keine Freunde. Teile deinen Code — wer ihn eingibt, ist automatisch gegenseitig befreundet.</p>`}
           <p class="duostat">Kommt ein Freund online, bekommst du im Spiel Bescheid.</p></div>`;
@@ -497,6 +568,7 @@ const Rivals = (() => {
       inp.oninput = () => { inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6); };
       $("rvAddBtn").onclick = () => addFriend(inp.value);
       el.querySelectorAll("[data-ch]").forEach(b => b.onclick = () => challenge(b.dataset.ch));
+      el.querySelectorAll("[data-poke]").forEach(b => b.onclick = () => poke(b.dataset.poke));
       el.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { if (confirm(`${fname(b.dataset.rm)} als Freund entfernen?`)) removeFriend(b.dataset.rm); });
     }
     bindTabs(el);
@@ -508,6 +580,9 @@ const Rivals = (() => {
     const winCar = CAR_DEFS[o.car]?.name ?? o.car, myCar = CAR_DEFS[me.car].name;
     const ownsIt = S().cars[o.car]?.owned;
     el.innerHTML = `${m.friend ? `<p class="rv-tier">👥 Freundes-Duell</p>` : ""}<div class="rv-match">${carBox(me, true)}<div class="duelvs">VS</div>${carBox(o, false)}</div>
+      ${compare(me, o)}
+      <button class="mbtn" id="rvTune" style="width:100%;margin-top:8px">🔧 In der Garage nachrüsten</button>
+      ${m.oppTuning ? `<p class="duostat" style="color:var(--amb)">🔧 ${esc(o.name)} rüstet gerade in der Garage nach…</p>` : ""}
       <div class="card"><h3>Um was fahrt ihr?</h3>
         <div class="rv-modes">
           <button class="rv-mode ${P.mode === "cash" ? "on" : ""}" data-mode="cash"><b>Normales Rennen</b><small>Cash-Einsatz · Sieger bekommt den Einsatz des Gegners</small></button>
@@ -533,6 +608,25 @@ const Rivals = (() => {
     const ack = $("rvAck"); if (ack) ack.onchange = () => { m.ack = ack.checked; };
     $("rvAgree").onclick = agree;
     $("rvNo").onclick = bye;
+    $("rvTune").onclick = tune;
+  }
+  // PS / Drehmoment / Gewicht / NOS / ≈ Zeit nebeneinander — das bessere grün
+  function statsOf(c){
+    try {
+      const def = CAR_DEFS[c.car], sp = buildSpec(c.car, { up: c.up, tune: c.tune, tal: c.tal, lvl: c.lvl });
+      return { ps: carPS(def, sp.powerMul), nm: Math.round(Math.max(...def.torque.map(t => t[1])) * sp.powerMul), kg: sp.mass, nos: sp.nosMax,
+               et: carSimET(c.car, { up: c.up, tune: c.tune, tal: c.tal, lvl: c.lvl }) };
+    } catch { return null; }
+  }
+  function compare(me, o){
+    const a = statsOf(me), b = statsOf(o);
+    if (!a || !b) return "";
+    const rows = [["Leistung", "ps", " PS", 1, 0], ["Drehmoment", "nm", " Nm", 1, 0], ["Gewicht", "kg", " kg", -1, 0], ["NOS", "nos", " s", 1, 1], ["≈ Zeit ¼ Meile", "et", " s", -1, 2]];
+    return `<div class="card rv-cmp"><h3>Leistung im Vergleich</h3>
+      <div class="rv-cmp-h"><span></span><b>Du</b><b>${esc(o.name)}</b></div>
+      ${rows.map(([l, k, u, dir, d]) => { const x = a[k], y = b[k], better = (x - y) * dir;
+        return `<div class="rv-cmp-r"><span>${l}</span><b class="${better > 1e-9 ? "w" : ""}">${x.toFixed(d)}${u}</b><b class="${better < -1e-9 ? "w" : ""}">${y.toFixed(d)}${u}</b></div>`; }).join("")}
+    </div>`;
   }
 
   $("rivBack")?.addEventListener("click", close);
@@ -541,10 +635,11 @@ const Rivals = (() => {
   setTimeout(async () => {
     boot();
     const msgs = (await settle()).filter(Boolean);
+    enforce();
     if (msgs.length) popup(msgs.map(x => `<p>${x.html}</p>`).join(""), [{ label: "OK" }]);
   }, 2500);
 
-  return { open, close, nameChanged, addFriend, addFriendPid, isFriend: p => isFriend(p), myPid: () => pid(), challenge, settle, settleAfterRace, xpFor, raceDone,
+  return { open, close, nameChanged, rematch, enforce, tune, inMatch, poke, addFriend, addFriendPid, isFriend: p => isFriend(p), myPid: () => pid(), challenge, settle, settleAfterRace, xpFor, raceDone,
     _debug: () => ({ phase, tab, geo, m, out, live, myCode, friends, online: [...online], n: everyone().length }) };
 })();
 window.Rivals = Rivals;

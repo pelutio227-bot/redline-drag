@@ -110,6 +110,7 @@ const UI = (() => {
     Object.keys(save).forEach(k => delete save[k]);
     Object.assign(save, cloud);
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch {}
+    window.Rivals?.enforce?.();   // Pink-Slip: im Hardcore verlorene Autos kommen auch per Cloud nicht zurück
     if (!Race.active()) show(save.current ? "menu" : "starter");
   }
   const cur = () => save.cars[save.current];
@@ -176,6 +177,8 @@ const UI = (() => {
     if (go === "quick") return startTest();
     if (go === "duo") return needName(() => Duo.open());
     if (go === "rivals") return needName(() => Rivals.open());
+    // Aus der Garage zurück, während ein Rivalen-Match offen ist (nachrüsten) → zurück ins Match
+    if ((go === "menu" || go === "radar") && $("garage").classList.contains("on") && window.Rivals?.inMatch?.()) return Rivals.open();
     if (go === "radar") return openRadar();
     show(go);
   }));
@@ -215,7 +218,7 @@ const UI = (() => {
         <div class="pc"><em>+ ${def.pros}</em><em class="con">− ${def.cons}</em></div>
         <div class="passive psv" style="--c:${C.col}"><div class="ic">${C.icon}</div><div><b>${C.passive.n}</b><span>${C.passive.d}</span></div></div>`;
       c.addEventListener("click", () => {
-        save.cars[k].owned = true; save.current = k; save.restLv = Math.max(save.restLv, 0.3); persist();
+        save.cars[k].owned = true; save.cars[k].got = Date.now(); save.current = k; save.restLv = Math.max(save.restLv, 0.3); persist();
         AudioSys.unlock(); AudioSys.levelUp();
         needName(() => {
           if (window.DUEL_CODE){ const dc = window.DUEL_CODE; window.DUEL_CODE = null; routeCode(dc); return; }
@@ -261,6 +264,18 @@ const UI = (() => {
   // ══ Rivalen-Abrechnung (Server hat entschieden) ═══════════════════════════════
   // Cash: Sieger +Einsatz, Verlierer −Einsatz. Hardcore: Verlierer verliert das Auto, Sieger bekommt es mit
   // Level/Teilen/Talenten/Style + Besitzer-Chronik (owners: frühere Besitzer, ältester zuerst).
+  // Pink-Slip: Auto ist WEG (zurück auf Werkszustand, nicht besessen). Nie ohne Auto.
+  function loseCar(k){
+    const c = save.cars[k];
+    if (!c?.owned || c.iap || CAR_DEFS[k].vault) return false;
+    save.cars[k] = defaultCarState(k);
+    if (save.current === k){
+      const rest = CAR_KEYS.filter(x => save.cars[x].owned).sort((a, b) => save.cars[b].lvl - save.cars[a].lvl);
+      save.current = rest[0] ?? null;
+      if (!save.current){ save.current = "hikari"; Object.assign(save.cars.hikari, { owned: true, got: Date.now() }); }
+    }
+    persist(); return true;
+  }
   function applyWager(w){
     const opp = esc(w.oppName ?? "Gegner"), res = { match: w.match };
     if (w.status === "void"){ res.text = `Rennen gegen ${w.oppName} nicht gewertet`; res.html = `⚪ Rennen gegen <b>${opp}</b> wurde <b>nicht gewertet</b> — nichts verloren.`; return res; }
@@ -275,21 +290,14 @@ const UI = (() => {
       const k = w.oppCar, st = w.oppState || {}, c = save.cars[k];
       if (!c || !CAR_DEFS[k]){ res.html = "Unbekanntes Auto"; res.text = res.html; return res; }
       const owners = [...(st.owners || []), { pid: w.oppPid, name: w.oppName, at: Date.now() }].slice(-20);
-      const take = () => Object.assign(c, { owned: true, lvl: st.lvl ?? 1, xp: st.xp ?? 0, up: st.up ?? c.up, tune: st.tune ?? c.tune,
+      const take = () => Object.assign(c, { owned: true, got: Date.now(), lvl: st.lvl ?? 1, xp: st.xp ?? 0, up: st.up ?? c.up, tune: st.tune ?? c.tune,
         style: st.style ?? c.style, tal: st.tal ?? {}, owners, wins: 0, bestEt: null });
       if (!c.owned){ take(); res.html = `Du hast <b>${esc(CAR_DEFS[k].name)} (LV ${c.lvl})</b> von ${opp} gewonnen!`; }
       else if ((st.lvl ?? 1) > (c.lvl ?? 1)){ take(); res.html = `Dein <b>${esc(CAR_DEFS[k].name)}</b> ist jetzt das von ${opp} — <b>LV ${c.lvl}</b>!`; }
       else { const comp = 2500 * (st.lvl ?? 1); save.money += comp; res.html = `${esc(CAR_DEFS[k].name)} hattest du schon stärker — <b>+${fmt$(comp)}</b> für die Teile`; }
     } else if (w.lost){
-      const k = w.car, c = save.cars[k];
-      if (c?.owned && !c.iap && !CAR_DEFS[k].vault){
-        save.cars[k] = defaultCarState(k);
-        if (save.current === k){
-          const rest = CAR_KEYS.filter(x => save.cars[x].owned).sort((a, b) => save.cars[b].lvl - save.cars[a].lvl);
-          save.current = rest[0] ?? null;
-          if (!save.current){ save.current = "hikari"; save.cars.hikari.owned = true; }   // nie ohne Auto
-        }
-      }
+      const k = w.car;
+      loseCar(k);
       res.html = `Dein <b>${esc(CAR_DEFS[k]?.name ?? k)}</b> gehört jetzt <b>${opp}</b>.`;
     }
     res.text = res.html.replace(/<[^>]+>/g, "");
@@ -490,7 +498,7 @@ const UI = (() => {
         gain = giveXp(k, rw.xp);
         save.money += rw.cash;
         if (rw.car){
-          if (!save.cars[rw.car].owned){ Object.assign(save.cars[rw.car], { owned: true, lvl: 1, xp: 0, tal: {}, style: { ...save.cars[rw.car].style, ...oppStyle(enc), drop: 6 } }); carDrop = rw.car; }
+          if (!save.cars[rw.car].owned){ Object.assign(save.cars[rw.car], { owned: true, got: Date.now(), lvl: 1, xp: 0, tal: {}, style: { ...save.cars[rw.car].style, ...oppStyle(enc), drop: 6 } }); carDrop = rw.car; }
           else { spare = Math.round(rarCash(enc.lvl) * 2 / 10) * 10; save.money += spare; }
         }
         save.stats.wins++; save.stats.rar[enc.rar] = (save.stats.rar[enc.rar] || 0) + 1;
@@ -1209,9 +1217,15 @@ const UI = (() => {
       el.innerHTML = res ? `<i>${w.mode === "hardcore" ? "☠" : "💵"}</i><div>${res.html}</div>` : `<i>⏳</i><div>Noch keine Entscheidung — wird beim nächsten Start abgerechnet.</div>`;
       if (res) window.NativeBridge?.haptic?.(won ? "heavy" : "medium");
     });
-    const again = w.friend ? { label: "↺ Nochmal fahren", go: () => { Duo.leave(true); show("menu"); Rivals.challenge(w.oppPid); } }
-      : { label: "📡 Neue Rivalen", go: () => { Duo.leave(true); Rivals.open("near"); } };
-    setResButtons(again, [{ label: "Menü", go: () => Duo.leave() }]);
+    // Revanche fragen (gleiche Bedingungen) · Hardcore-Revanche · Gegner als Freund · weiter
+    const terms = { mode: w.mode, stake: w.stake };
+    const sec = [];
+    if (w.mode !== "hardcore") sec.push({ label: "☠ Revanche Hardcore", go: () => { Duo.leave(true); Rivals.rematch(w.oppPid, w.oppName, { mode: "hardcore", stake: 0 }); } });
+    if (!window.Rivals?.isFriend?.(w.oppPid)) sec.push({ label: "+ Freund", go: async () => { await Rivals.addFriendPid(w.oppPid, w.oppName); setResButtons(main, sec.filter(b => b.label !== "+ Freund")); } });
+    sec.push({ label: "📡 Neue Rivalen", go: () => { Duo.leave(true); Rivals.open("near"); } });
+    sec.push({ label: "Menü", go: () => Duo.leave() });
+    const main = { label: "↺ Revanche fragen", go: () => { Duo.leave(true); Rivals.rematch(w.oppPid, w.oppName, terms); } };
+    setResButtons(main, sec);
     show("results");
   }
 
@@ -1269,7 +1283,7 @@ const UI = (() => {
       window.NativeBridge.haptic(t.matches(".mbtn.primary, .vaultbuy, .go") ? "medium" : "light");
     }, true);
   }
-  return { save, show, persist, toast, applyCloud, showDuoResults, applyWager, needName, shareVS, unlockVault, raceEvent,
+  return { save, show, persist, toast, applyCloud, showDuoResults, applyWager, loseCar, needName, shareVS, unlockVault, raceEvent,
     carImage: (k, st) => carImage(k, st), hideLevelUp, openRadar,
     currentExhaust: () => save.cars[save.current]?.style.exhaust ?? 0 };
 })();

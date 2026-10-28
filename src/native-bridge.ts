@@ -6,6 +6,7 @@ import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { Browser } from "@capacitor/browser";
 import { App as CapApp } from "@capacitor/app";
+import { PushNotifications } from "@capacitor/push-notifications";
 
 const RC_KEY = Capacitor.getPlatform() === "ios" ? "appl_ZvNXrhYqzwYdKiHPLWRprvusnCK" : "";
 const isNative = Capacitor.isNativePlatform();
@@ -87,7 +88,36 @@ async function openUrl(url: string): Promise<void> {
   try { await Browser.open({ url }); } catch { window.open(url, "_blank"); }
 }
 
-const bridge = { isNative, iapEnabled: IAP_ENABLED, platform: Capacitor.getPlatform(), products, purchase, restore, owned, haptic, openUrl };
+// Push (Rivalen/Freunde): Erlaubnis fragen, bei APNs registrieren, Gerätetoken zurückgeben (null = nein/keins)
+let pushToken: Promise<string | null> | null = null;
+function pushRegister(): Promise<string | null> {
+  if (!isNative) return Promise.resolve(null);
+  if (pushToken) return pushToken;
+  pushToken = (async () => {
+    try {
+      let p = await PushNotifications.checkPermissions();
+      if (p.receive === "prompt" || p.receive === "prompt-with-rationale") p = await PushNotifications.requestPermissions();
+      if (p.receive !== "granted") return null;
+      const tok = new Promise<string | null>((res) => {
+        void PushNotifications.addListener("registration", (t) => res(t.value));
+        void PushNotifications.addListener("registrationError", () => res(null));
+        setTimeout(() => res(null), 15000);
+      });
+      await PushNotifications.register();
+      return await tok;
+    } catch { return null; }
+  })();
+  return pushToken;
+}
+if (isNative) {
+  // Tipp auf eine Push-Nachricht → Rivalen › Freunde öffnen
+  void PushNotifications.addListener("pushNotificationActionPerformed", () => {
+    const go = () => { const w = window as unknown as { Rivals?: { open: (t: string) => void } }; if (w.Rivals) w.Rivals.open("friends"); else setTimeout(go, 800); };
+    setTimeout(go, 600);
+  });
+}
+
+const bridge = { pushRegister, isNative, iapEnabled: IAP_ENABLED, platform: Capacitor.getPlatform(), products, purchase, restore, owned, haptic, openUrl };
 (window as unknown as { NativeBridge: typeof bridge }).NativeBridge = bridge;
 
 if (isNative) {

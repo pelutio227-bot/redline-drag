@@ -372,6 +372,7 @@
   .duelcar span{display:block;font-size:11px;font-weight:800;font-style:italic}
 
   @media (min-width:760px){ .scroll,#starterCards{max-width:640px;margin:0 auto;width:100%} .rescard{width:min(440px,92vw)} }
+  .langbtn{margin-top:6px;min-height:40px;padding:6px 16px;border-radius:20px;background:transparent;border:1px solid var(--line);color:var(--mut);font-size:12.5px;font-weight:700}
   /* ── Rivalen (rivals.js) ── */
   .rivbtn{position:relative}
   .rivon{position:absolute;top:8px;right:10px;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--grn);color:#04130a;font-size:11px;font-weight:900;line-height:20px}
@@ -425,6 +426,11 @@
   .rv-pop-in{width:min(380px,100%);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:20px;text-align:center;animation:luIn .35s both}
   .rv-pop-t{display:block;font-size:18px;font-weight:900;margin-bottom:6px} .rv-pop-in p{color:#c9ccd8;font-size:13.5px;margin:6px 0}
   .rv-pop-btns{display:flex;flex-direction:column;gap:8px;margin-top:14px} .rv-pop-btns .mbtn{width:100%}
+  .rv-cmp-h,.rv-cmp-r{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px;align-items:center;padding:6px 0;font-size:13px}
+  .rv-cmp-h b{font-size:11px;color:var(--mut);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rv-cmp-r{border-top:1px solid var(--line)} .rv-cmp-r span{color:var(--mut)} .rv-cmp-r b{text-align:right;font-variant-numeric:tabular-nums}
+  .rv-cmp-r b.w{color:var(--grn)}
+  .resrow{flex-wrap:wrap}
   .loot.hcl{border:1px solid rgba(255,45,64,.6)}
   @media (min-width:700px) and (min-height:1000px){ #menu > :not(.cash){zoom:1.3} #menu{gap:8px} }
   @media (max-height:700px){ .rescard{padding:20px 18px} .rescard .big{font-size:38px} .resgrid{margin-top:10px;gap:6px} .resgrid div{padding:8px 10px} }
@@ -621,8 +627,8 @@
 
 <!-- HUD -->
 <div id="hud">
-  <button id="leaveRace">✕</button>
-  <button id="restartRace" title="Neustart">↺</button>
+  <button id="leaveRace" style="display:none" aria-hidden="true">✕</button>
+  <button id="restartRace" style="display:none" aria-hidden="true">↺</button>
   <div id="hudVs"></div>
   <button class="pedal" id="pGas"><i class="tread"></i><b>GAS</b></button>
   <button class="pedal" id="pNos">NOS</button>
@@ -656,6 +662,7 @@
   </div>
   <button id="cloudBtn"></button>
   <button id="cloudMail">oder per E-Mail-Code anmelden</button>
+  <button id="langBtn" class="langbtn" aria-label="Sprache / Language"></button>
   <button id="adminLink" style="display:none" onclick="location.href='admin.html'">🛠 Team-Admin</button>
 </div>
 
@@ -753,6 +760,8 @@
 <script>window.VAULT_LINK = "https://buy.stripe.com/5kQfZidi1fNdefBeus1kA02";</script>
 <script src="js/vendor/supabase.js?v=15"></script>
 <script src="js/vendor/qrcode.js?v=17"></script>
+<script src="js/i18n-en.js?v=3"></script>
+<script src="js/i18n.js?v=2"></script>
 <script src="assets/cars/meta.js?v=28"></script>
 <script src="assets/cars/kitmeta.js?v=24"></script>
 <script src="js/cars.js?v=30"></script>
@@ -762,9 +771,9 @@
 <script src="js/perf.js?v=4"></script>
 <script src="js/game.js?v=34"></script>
 <script src="js/cloud.js?v=22"></script>
-<script src="js/duo.js?v=29"></script>
-<script src="js/rivals.js?v=3"></script>
-<script src="js/ui.js?v=33"></script>
+<script src="js/duo.js?v=30"></script>
+<script src="js/rivals.js?v=5"></script>
+<script src="js/ui.js?v=35"></script>
 <script>
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
