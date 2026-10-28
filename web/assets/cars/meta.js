@@ -37,7 +37,7 @@ window.CAR_SPRITES = {
   spectre:{ src:"assets/cars/spectre.png", w:960, h:249, wx1:180, wx2:745, wy:186, r:62, sx:138, sy:39 },
   titan:  { src:"assets/cars/titan.png", w:960, h:283, wx1:207, wx2:716, wy:196, r:57.5, sx:113, sy:43, wing:true },
   tsuna:  { src:"assets/cars/tsuna.png", w:960, h:265, wx1:172, wx2:775, wy:190, r:72, sx:158, sy:34 },
-  venom:  { src:"assets/cars/venom.png", w:960, h:251, wx1:183, wx2:725, wy:167, r:67.5, sx:100, sy:35 },
+  venom:  { src:"assets/cars/venom.png", w:960, h:251, wx1:177, wx2:766, wy:170, r:70, rr:77, sx:100, sy:35 },  // 28.10. nachgemessen (Mischbereifung)
   warlord:{ src:"assets/cars/warlord.png", w:960, h:338, wx1:206, wx2:787, wy:261, r:74, sx:129, sy:34, wing:true },
   zenith: { src:"assets/cars/zenith.png", w:960, h:260, wx1:234, wx2:764, wy:186, r:65, sx:118, sy:17, wing:true },
   kuro:   { src:"assets/cars/kuro.png", w:960, h:274, wx1:195, wx2:772, wy:190, r:66, sx:96, sy:30, wing:true },

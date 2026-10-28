@@ -807,8 +807,64 @@ function measureSprite(im, m){
   };
   // er = voller Reifen-Radius (Detektion) — bestimmt Radier-Zone + gezeichnete
   // Radgrösse. capWheel kappt nur wd.r (= Voll-Radierscheibe, schont den Kotflügel).
+  // Reifen-Kreis aus der FREIEN Unterhälfte (28.10., «Rad auf Rad»): unter der Radmitte steht
+  // der Reifen frei → linke/rechte Alpha-Kante je Zeile ergibt Mitte + Radius des ECHTEN
+  // Foto-Reifens. Vorher Schätzung → Foto-Reifen blieb neben dem gezeichneten Rad sichtbar.
+  const fitTire = (wd, r0) => {
+    // Kantenpunkte (links/rechts) aller freien Zeilen bis zur Reifen-Unterkante sammeln
+    const P = [];
+    for (let y = Math.round(wd.y + r0*0.15); y < Math.min(m.h, wd.y + r0*1.7); y += 2){
+      const x0 = Math.round(wd.x);
+      if (d[(y*m.w + x0)*4 + 3] <= 60) continue;
+      let l = x0, rr = x0;
+      while (l > 0 && d[(y*m.w + l - 1)*4 + 3] > 60) l--;
+      while (rr < m.w - 1 && d[(y*m.w + rr + 1)*4 + 3] > 60) rr++;
+      const hw = (rr - l)/2;
+      if (hw < r0*0.12 || hw > r0*1.7) continue;       // Zeile hängt am Schweller/Stossfänger
+      // Kanten müssen Reifengummi sein (dunkel, unbunt) — sonst hängt Blech dran
+      const rubber = x => { let n = 0; for (let k = 0; k < 4; k++){ const i = (y*m.w + x)*4;
+        const R = d[i], G = d[i+1], B = d[i+2]; if (Math.max(R,G,B) < 95 && Math.max(R,G,B) - Math.min(R,G,B) < 40) n++; x += (x < wd.x ? 1 : -1); } return n >= 2; };
+      if (!rubber(l) || !rubber(rr)) continue;
+      P.push([l, y], [rr, y]);
+    }
+    if (P.length < 8) return wd;
+    // Kreis-Regression (Kåsa): x²+y² + D·x + E·y + F = 0
+    let Sx=0,Sy=0,Sxx=0,Syy=0,Sxy=0,Sz=0,Sxz=0,Syz=0; const n = P.length;
+    for (const [x, y] of P){ const z = x*x + y*y; Sx+=x; Sy+=y; Sxx+=x*x; Syy+=y*y; Sxy+=x*y; Sz+=z; Sxz+=x*z; Syz+=y*z; }
+    const A = [[Sxx,Sxy,Sx],[Sxy,Syy,Sy],[Sx,Sy,n]], B = [-Sxz,-Syz,-Sz];
+    const det = M3 => M3[0][0]*(M3[1][1]*M3[2][2]-M3[1][2]*M3[2][1]) - M3[0][1]*(M3[1][0]*M3[2][2]-M3[1][2]*M3[2][0]) + M3[0][2]*(M3[1][0]*M3[2][1]-M3[1][1]*M3[2][0]);
+    const dA = det(A); if (!dA) return wd;
+    const col = (i) => A.map((row, j) => row.map((v, k) => k === i ? B[j] : v));
+    const D = det(col(0))/dA, E = det(col(1))/dA, F = det(col(2))/dA;
+    const x = -D/2, y = -E/2, r = Math.sqrt(x*x + y*y - F);
+    if (!(r > r0*0.7 && r < r0*1.9) || Math.abs(x - wd.x) > r0*0.5 || Math.abs(y - wd.y) > r0*0.5) return wd;
+    return { ...wd, x, y, r, fitted: true };
+  };
+  // Mitte bei bekanntem Radius aus der freien Reifen-Unterkante: Boden-Kontur unter dem Rad
+  // = Mitte + r; x = Mitte der linken/rechten Gummi-Kante in den untersten Zeilen
+  const recenter = (wd, r) => {
+    const xs = [], x0 = Math.round(wd.x);
+    const bots = [];
+    for (let x = Math.max(0, x0 - Math.round(r*0.25)); x <= Math.min(m.w - 1, x0 + Math.round(r*0.25)); x++) if (bot[x] >= 0) bots.push(bot[x]);
+    if (bots.length < 5) return;
+    bots.sort((p, q) => p - q);
+    const yb = bots[bots.length >> 1];
+    for (let y = Math.round(yb - r*0.55); y <= yb - r*0.12; y += 2){
+      if (y < 0 || d[(y*m.w + x0)*4 + 3] <= 60) continue;
+      let l = x0, rr = x0;
+      while (l > 0 && d[(y*m.w + l - 1)*4 + 3] > 60) l--;
+      while (rr < m.w - 1 && d[(y*m.w + rr + 1)*4 + 3] > 60) rr++;
+      const hw = (rr - l)/2, dy = yb - r - y;                 // erwartete Halbbreite am Kreis
+      const want = Math.sqrt(Math.max(0, r*r - dy*dy));
+      if (Math.abs(hw - want) > r*0.25) continue;            // Zeile hängt an Blech/Schatten
+      xs.push((l + rr)/2);
+    }
+    const ny = yb - r;
+    if (Math.abs(ny - wd.y) < r*0.45) wd.y = ny;
+    if (xs.length >= 3){ xs.sort((p, q) => p - q); const nx = xs[xs.length >> 1]; if (Math.abs(nx - wd.x) < r*0.4) wd.x = nx; }
+  };
   const mkWheel = (cx, cy, r0) => {
-    const wd = detectWheel(cx, cy, r0);
+    const wd = fitTire(detectWheel(cx, cy, r0), r0);
     wd.er = wd.r;
     return capWheel(wd);
   };
@@ -834,8 +890,12 @@ function measureSprite(im, m){
   // Vorder-/Hinterrad gleich gross (Detektion streut je nach Foto-Schatten), ausser das
   // Auto hat bewusst andere Hinterräder (m.rr = Drag-Slicks)
   if (m.rr == null){
-    const er = Math.max(wheels[0].er, wheels[1].er);
-    for (const wd of wheels) wd.er = er;
+    // Stimmen vorne/hinten überein (±12 %) → grösserer Wert; sonst ist einer durch Schürze/
+    // Schatten aufgebläht → kleinerer, aber nie unter dem Metadaten-Radius
+    const ra = wheels[0].er, rb = wheels[1].er;
+    const er = Math.abs(ra - rb) / Math.min(ra, rb) <= 0.12 ? Math.max(ra, rb) : Math.max(Math.min(ra, rb), m.r);
+    for (const wd of wheels){ wd.er = er; recenter(wd, er); }
+    if (wheels.some(w => w.fitted)) m._fit = { r: Math.max(wheels[0].er, wheels[1].er), y: (wheels[0].y + wheels[1].y)/2 };
   }
   // Zeilen-Linkskante (Heck-Kontur je Höhe) — Auspuff kommt exakt aus der Schürze
   const left = new Array(m.h).fill(-1);
@@ -866,7 +926,10 @@ function spriteLayout(m){
   const scale = Math.min(28.8 / m.r, 470 / m.w, (AXLE_Y - 2) / m.wy);
   const midX = (m.wx1 + m.wx2) / 2 * scale;
   const xoff = 240 - midX;
-  const yoff = AXLE_Y - m.wy * scale;
+  let yoff = AXLE_Y - m.wy * scale;
+  // Echter Foto-Reifen vermessen (m._fit) → Auto so setzen, dass DIESER Reifen auf dem Boden steht
+  // (Rad füllt sein Radhaus wie im Foto; nie übers Canvas-Dach hinaus)
+  if (m._fit) yoff = Math.max(1, GROUND_Y + 2 - (m._fit.y + m._fit.r) * scale);
   return { scale, xoff, yoff,
     ax: [(xoff + m.wx1*scale)/480, (xoff + m.wx2*scale)/480] };
 }
@@ -1086,6 +1149,7 @@ async function spriteCanvas(key, st){
   if (!m) return null;
   const im = await loadSprite(m);
   if (!im) return null;
+  const M = measureSprite(im, m);                 // vor dem Layout: liefert m._fit (echter Reifen)
   const L = spriteLayout(m);
   const cv = document.createElement("canvas");
   cv.width = 480; cv.height = 200;
@@ -1101,7 +1165,6 @@ async function spriteCanvas(key, st){
   if (st.neon) drawNeonC(c, bx+8, bx2-8, nHue, k, GROUND_Y + 2);
   // Anker aus der Alpha-Kontur: Auspuff an echter Heckkante + Heck-Unterkante
   // (folgt der Tieferlegung), Spoiler am vermessenen Deck-Punkt.
-  const M = measureSprite(im, m);
   const whl = M ? M.wheels : [{ x:m.wx1, y:m.wy, r:m.rr ?? m.r, er:m.rr ?? m.r }, { x:m.wx2, y:m.wy, r:m.r, er:m.r }];
   // Auspuff an der STOSSSTANGE (M.rearX), nicht am Flügel-Überhang (M.x0) —
   // sonst schwebt der Endtopf bei phoenix/reaper/zenith/taifun hinterm Auto.
@@ -1198,7 +1261,7 @@ async function spriteCanvas(key, st){
     const x0c = L.xoff + M.x0*L.scale, Lc = (M.x1 - M.x0)*L.scale;
     drawSpoilerFit(c, { x0c, Lc, topC }, st.spoiler, k, hue);
   }
-  drawBodykitC(c, L, m, kitFoto ? 0 : (st.kit ?? 0), k, dropPx, whl, M);
+  drawBodykitC(c, L, m, kitFoto ? 0 : (st.kit ?? 0), k, dropPx, whl, M, hue);
   if ((st.exhaust ?? 0) === 3) drawExhaustC(c, rearX + 4, 3, k, exY, tube);
   // Neon-Röhre am Schweller zwischen den Radhäusern (an der gemessenen Schweller-Linie)
   if (st.neon) drawNeonTube(c, tube[0] + 4, tube[1] - 4, nHue, sillC - 1);
@@ -1211,15 +1274,15 @@ async function spriteCanvas(key, st){
   // das Rad selbst bleibt auf der Achse).
   cv._wells = whl.map(wd => ({
     x: L.xoff + wd.x*L.scale,
-    y: AXLE_Y + (wd.y - m.wy)*L.scale,
-    hy: AXLE_Y + (wd.y - m.wy)*L.scale + dropPx,
+    y: L.yoff + wd.y*L.scale,
+    hy: L.yoff + wd.y*L.scale + dropPx,
     r: (wd.er ?? wd.r)*L.scale + 2,
     hole: ((wd.er ?? wd.r) + 4)*L.scale + 2,
   }));
   return cv;
 }
 // ── Bodykit (Street/Widebody) — Canvas-Version für Foto-Autos ──────────────
-function drawBodykitC(c, L, m, kit, k, dropPx, whl, M){
+function drawBodykitC(c, L, m, kit, k, dropPx, whl, M, hue = 0){
   if (!kit) return;
   const s = L.scale, yo = L.yoff + dropPx;
   // Alle Kit-Teile ankern an der GEMESSENEN Karosserie-Unterlinie — vorher
@@ -1231,39 +1294,40 @@ function drawBodykitC(c, L, m, kit, k, dropPx, whl, M){
   const noseY = yCl(M && M.noseY >= 0 ? yo + M.noseY*s : M && M.noseBot >= 0 ? yo + M.noseBot*s : AXLE_Y + 15 + dropPx);
   const rearY = yCl(M && M.bumperY >= 0 ? yo + M.bumperY*s : M && M.rearBot >= 0 ? yo + M.rearBot*s : AXLE_Y + 15 + dropPx);
   const sillY = yCl(M && M.sillBot >= 0 ? yo + M.sillBot*s : AXLE_Y + 22 + dropPx);
-  // Front-Splitter (28.10. kompakt): Carbon-Lippe an der Schürzen-Unterkante, ragt nur
-  // knapp vor; x = Kontur in genau dieser Höhe (nicht die längste Stelle der Nase)
-  const nX = M && M.noseRX >= 0 ? Math.min(L.xoff + M.noseRX*s, 480 - 8*k) : noseX;
-  c.fillStyle = "#1a2027";
+  // Street-Kit (28.10. v2, «kein Unterschied sichtbar»): deutlich sichtbar, aber an der Kontur
+  const paint = l => `hsl(${hue} 68% ${l}%)`;
+  // Front-Splitter: Carbon-Lippe an der Schürzen-Unterkante, ragt sichtbar vor
+  const nX = M && M.noseRX >= 0 ? Math.min(L.xoff + M.noseRX*s, 480 - 14*k) : noseX;
+  c.fillStyle = "#151a20";
   c.beginPath();
-  c.moveTo(nX-40*k, noseY-2*k); c.lineTo(nX+5*k, noseY-2*k);
-  c.lineTo(nX+7*k, noseY+1.5*k); c.lineTo(nX-38*k, noseY+2*k);
+  c.moveTo(nX-46*k, noseY-3*k); c.lineTo(nX+9*k, noseY-2*k);
+  c.lineTo(nX+12*k, noseY+2.5*k); c.lineTo(nX-44*k, noseY+3.5*k);
   c.closePath(); c.fill();
-  c.fillStyle = "rgba(255,255,255,.35)";
-  c.fillRect(nX-40*k, noseY-2*k, 45*k, 1.2);
-  // Heck-Diffusor: an der Schürzen-Unterkante, kurze Finnen nach oben
-  const rX = M && M.bumperY >= 0 && M.left?.[M.bumperY] >= 0 ? Math.max(L.xoff + M.left[M.bumperY]*s, 8*k) : rearX;
-  c.fillStyle = "#1a2027";
+  c.fillStyle = "rgba(255,255,255,.45)"; c.fillRect(nX-46*k, noseY-3*k, 55*k, 1.4);
+  c.fillStyle = paint(50); c.fillRect(nX-40*k, noseY+1.2*k, 46*k, 1.3*k);         // Lack-Akzentlinie
+  // Heck-Diffusor mit Finnen
+  const rX = M && M.bumperY >= 0 && M.left?.[M.bumperY] >= 0 ? Math.max(L.xoff + M.left[M.bumperY]*s, 10*k) : rearX;
+  c.fillStyle = "#151a20";
   c.beginPath();
-  c.moveTo(rX-5*k, rearY-2*k); c.lineTo(rX+34*k, rearY-2*k);
-  c.lineTo(rX+34*k, rearY+2*k); c.lineTo(rX-4*k, rearY+2.5*k);
+  c.moveTo(rX-8*k, rearY-3*k); c.lineTo(rX+40*k, rearY-3*k);
+  c.lineTo(rX+40*k, rearY+2.5*k); c.lineTo(rX-6*k, rearY+4*k);
   c.closePath(); c.fill();
-  c.fillStyle = "rgba(255,255,255,.28)";
-  c.fillRect(rX-5*k, rearY-2*k, 39*k, 1.2);
-  c.fillStyle = "#0b0e12";
-  for (let i = 0; i < 4; i++) c.fillRect(rX + i*8*k, rearY-4*k, 1.8*k, 4*k);
+  c.fillStyle = "rgba(255,255,255,.35)"; c.fillRect(rX-8*k, rearY-3*k, 48*k, 1.3);
+  c.fillStyle = "#06080b";
+  for (let i = 0; i < 5; i++) c.fillRect(rX - 4*k + i*8*k, rearY - 1*k, 2*k, 6*k);
   // Seitenschweller: direkt unter der Schweller-Linie, mit heller Kante
   const x1 = L.xoff + (whl[0].x + (whl[0].er ?? whl[0].r) + 4)*s;
   const x2 = L.xoff + (whl[1].x - (whl[1].er ?? whl[1].r) - 4)*s;
   if (x2 > x1){
-    c.fillStyle = "#1a2027"; rrC(c, x1, sillY-3, x2-x1, 4.5*k+3, 2*k); c.fill();
-    c.fillStyle = "rgba(255,255,255,.30)"; c.fillRect(x1+2, sillY-1.5, x2-x1-4, 1.6);
+    c.fillStyle = paint(30); rrC(c, x1, sillY-4, x2-x1, 6*k+3, 2*k); c.fill();         // Schweller in Lackfarbe
+    c.fillStyle = paint(52); c.fillRect(x1+3, sillY-3, x2-x1-6, 1.6);                 // Glanzkante
+    c.fillStyle = "#151a20"; rrC(c, x1+4*k, sillY+5*k-1, x2-x1-8*k, 2.6*k, 1.2*k); c.fill(); // Carbon-Lippe
   }
   if (kit >= 2){ // Widebody: FETTE Flares über beiden Radhäusern (+ Nieten)
     for (let i = 0; i < 2; i++){
       const wd = whl?.[i];
       const cx = wd ? L.xoff + wd.x*s : L.ax[i]*480;
-      const cy = wd ? AXLE_Y + (wd.y - m.wy)*s + dropPx : AXLE_Y + dropPx;
+      const cy = wd ? L.yoff + wd.y*s + dropPx : AXLE_Y + dropPx;
       const fr = wd ? (wd.er ?? wd.r)*s + 5
                     : ((i === 0 && m.rr ? m.rr : m.r) * s) + 5;
       // Nur oberer Halbkreis — Endpunkte unterhalb der Radmitte wirkten wie
