@@ -27,7 +27,7 @@ const Race = (() => {
   const gradCache = { key:"" }, tachoCache = { key:"", cv:null };
   window.addEventListener("resize", resize); resize();
 
-  let st=null, raf=0, lastT=0, acc=0;
+  let st=null, raf=0, lastT=0, acc=0, lastDraw=0;
   const DT=1/120;
   let onDone=null;
   const parts=[];
@@ -83,7 +83,7 @@ const Race = (() => {
     lastGas = false; flutterAt = -1;
     const sh = document.getElementById("pShift"); if (sh) sh.dataset.gear = "0";
     parts.length = 0;
-    lastT = performance.now(); acc = 0;
+    lastT = performance.now(); acc = 0; lastDraw = lastT - 17;
     // Duo: gemeinsamer Start auf der monotonen Uhr (Date.now kann springen)
     if (st.duo) st.duo.t0 = lastT + (st.duo.startAt - Date.now());
     cancelAnimationFrame(raf);
@@ -238,7 +238,10 @@ const Race = (() => {
       acc = 0;
     } else while (acc >= DT && st){ physics(DT); acc -= DT; }
     if (!st) return;
-    draw(dt);
+    // Zeichnen max. ~60×/s (ProMotion-iPads liefern 120 Hz → doppelte GPU-Last); Physik läuft oben unabhängig
+    if (now - lastDraw < 14) return;
+    const ddt = Math.min(0.1, (now - lastDraw)/1000); lastDraw = now;
+    draw(ddt);
     const p = st.p;
     AudioSys.engine(p.rpm, p.throttle, p.spec.turbo ? Math.min(1, p.throttle*(p.rpm/p.spec.def.redline)) : 0);
     if (lastGas && !input.gas && p.spec.turbo && p.rpm > p.spec.def.redline*0.55 && !p.finished)

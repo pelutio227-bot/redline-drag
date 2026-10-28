@@ -26,13 +26,17 @@ const AudioSys = (() => {
   function unlock(){
     if (!ensure()) return;
     if (ctx.state !== "running") ctx.resume().catch(()=>{});
+    // EIN Element, nur play() wird bei Bedarf wiederholt (vorher: neues <audio> pro Tap,
+    // solange play() noch nicht bestätigt war → auf iOS Hunderte Elemente)
     if (!keepAlive){
-      const a = document.createElement("audio");
-      a.src = SILENT_WAV; a.loop = true; a.volume = 0.01;
-      a.setAttribute("playsinline", "");
-      const p = a.play();
-      if (p) p.then(()=>{ keepAlive = a; }).catch(()=>{});  // braucht Geste — nächster Tap versucht's neu
-      else keepAlive = a;
+      keepAlive = document.createElement("audio");
+      keepAlive.src = SILENT_WAV; keepAlive.loop = true; keepAlive.volume = 0.01;
+      keepAlive.setAttribute("playsinline", "");
+    }
+    if (keepAlive.paused && !keepAlive._pending){
+      keepAlive._pending = true;
+      const p = keepAlive.play();
+      if (p) p.catch(()=>{}).finally(()=>{ keepAlive._pending = false; }); else keepAlive._pending = false;
     }
   }
   document.addEventListener("pointerdown", unlock, { passive: true, capture: true });
@@ -41,6 +45,12 @@ const AudioSys = (() => {
     if (!document.hidden && ctx && ctx.state !== "running") ctx.resume().catch(()=>{});
   });
 
+  // Performance (iPad «ruckelt ab dem 4. Rennen»): fertige One-Shots hängen sonst mit Filter/Gain
+  // weiter am Master — WebKit rechnet diese Knoten im Audio-Thread mit, Rennen für Rennen mehr.
+  // Darum: sobald die Quelle endet, alle Knoten der Kette abhängen.
+  function done(src, ...nodes){
+    src.onended = () => { for (const n of [src, ...nodes]){ try { n.disconnect(); } catch {} } };
+  }
   function distCurve(amount){
     const n = 256, curve = new Float32Array(n);
     for (let i=0;i<n;i++){
@@ -72,7 +82,7 @@ const AudioSys = (() => {
     sh.connect(lp).connect(g).connect(master);
     noiseSrc.connect(bp).connect(tg).connect(master);
     o1.start(); o2.start(); noiseSrc.start();
-    eng = { o1, o2, noise: noiseSrc, lp, g, tg, bp };
+    eng = { o1, o2, o1g, o2g, sh, noise: noiseSrc, lp, g, tg, bp };
     if (prof.fam === "jdm"){
       // Ansaug-Rasp: 2. Harmonische durch resonanten Bandpass, öffnet ab ~60 % Drehzahl («VTEC»)
       const o3 = ctx.createOscillator(); o3.type = "sawtooth";
@@ -89,7 +99,7 @@ const AudioSys = (() => {
       const lfo = ctx.createOscillator(); lfo.type = "triangle"; lfo.frequency.value = 6;
       const depth = ctx.createGain(); depth.gain.value = 0.3;
       lfo.connect(depth).connect(pre.gain);
-      lfo.start(); Object.assign(eng, { lfo, depth });
+      lfo.start(); Object.assign(eng, { lfo, depth, pre });
     }
   }
   // Performance (28.10.): nicht jeden Frame (120 Hz) neue Automations-Events stapeln —
@@ -125,7 +135,7 @@ const AudioSys = (() => {
     // ALLE Quellen stoppen — die Turbo-Noise-Schleife lief sonst ewig weiter
     // und stapelte sich pro Rennen zu einem immer lauteren Dauer-Zischen.
     try { eng.o1.stop(); eng.o2.stop(); eng.noise.stop(); eng.o3?.stop(); eng.lfo?.stop(); } catch {}
-    try { eng.g.disconnect(); eng.tg.disconnect(); } catch {}
+    for (const n of Object.values(eng)){ if (n instanceof AudioNode){ try { n.disconnect(); } catch {} } }
     eng = null; engLast = 0;
   }
 
@@ -149,7 +159,7 @@ const AudioSys = (() => {
     const g = ctx.createGain();
     g.gain.setValueAtTime(gain, t0);
     g.gain.linearRampToValueAtTime(0, t0 + dur);
-    src.connect(f).connect(g).connect(master);
+    src.connect(f).connect(g).connect(master); done(src, f, g);
     src.start(t0, Math.random()*(1 - Math.min(dur, 0.9)), dur);
   }
   function shiftPop(exhaust){ // Backfire — grösser mit dickerem Auspuff
@@ -172,6 +182,7 @@ const AudioSys = (() => {
     const lg = ctx.createGain(); lg.gain.value = 0.35;
     lfo.connect(lg).connect(g.gain);
     src.connect(bp); bp.connect(hp); hp.connect(g); g.connect(master);
+    done(src, bp, hp, g); done(lfo, lg);
     src.start(t0, Math.random()*0.4, dur); lfo.start(t0); lfo.stop(t0 + dur);
   }
   // Turbo beim Gas-Wegnehmen/Schalten (stage 1–3, boost 0–1 = Ladedruck):
@@ -207,13 +218,14 @@ const AudioSys = (() => {
     const tgn = ctx.createGain(); tgn.gain.value = 0.35 + stage*0.35;
     thump.connect(tl).connect(tgn).connect(chop);
     const off = Math.random()*0.4;
+    done(air, ab, ag, chop, out); done(thump, tl, tgn); done(lfo, lg);
     air.start(t0, off, dur); thump.start(t0, off, dur); lfo.start(t0); lfo.stop(t0 + dur);
     // Stage 3: zusätzlich das Runterpfeifen des grossen Laders
     if (stage >= 3){
       const w = ctx.createOscillator(); w.type = "sine";
       w.frequency.setValueAtTime(3200, t0); w.frequency.exponentialRampToValueAtTime(900, t0 + dur*1.2);
       const wg = ctx.createGain(); wg.gain.setValueAtTime(0.05*k, t0); wg.gain.exponentialRampToValueAtTime(0.0005, t0 + dur*1.2);
-      w.connect(wg).connect(master); w.start(t0); w.stop(t0 + dur*1.2);
+      w.connect(wg).connect(master); done(w, wg); w.start(t0); w.stop(t0 + dur*1.2);
     }
   }
   // Anti-Lag-/Backfire-KNALL: tiefer Druckstoss + Knack-Transient
@@ -247,7 +259,7 @@ const AudioSys = (() => {
     const o = ctx.createOscillator(); o.type = "sine"; o.frequency.value = freq;
     const g = ctx.createGain(); g.gain.setValueAtTime(gain, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
-    o.connect(g).connect(master); o.start(); o.stop(ctx.currentTime + dur);
+    o.connect(g).connect(master); done(o, g); o.start(); o.stop(ctx.currentTime + dur);
   }
   function winJingle(){
     [523, 659, 784, 1047].forEach((f,i)=>setTimeout(()=>beep(f, .22, .28), i*130));
@@ -265,9 +277,9 @@ const AudioSys = (() => {
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(gain, t0 + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    let node = o.connect(g);
-    if (lp){ const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lp; node = g.connect(f); }
-    node.connect(master); o.start(t0); o.stop(t0 + dur + 0.05);
+    let node = o.connect(g), f = null;
+    if (lp){ f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lp; node = g.connect(f); }
+    node.connect(master); done(o, g, ...(f ? [f] : [])); o.start(t0); o.stop(t0 + dur + 0.05);
   }
   // Radar-Rolle: kurzes «Tick» pro Karte (Tonhöhe sinkt, wenn die Rolle bremst)
   function radarTick(k = 1){ tone(1800*k, 0.035, { type:"square", gain:0.06, lp:3200 }); noiseBurst(0.02, "highpass", 5000, 1, 0.05); }
