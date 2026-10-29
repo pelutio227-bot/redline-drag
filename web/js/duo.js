@@ -257,7 +257,7 @@ const Duo = (() => {
   }
   function abort(){
     if (phase !== "race") return;
-    if (rm && !confirm(rm.mode === "hardcore" ? "Aufgeben = verloren — dein Auto geht an " + rm.oppName + ". Wirklich aufgeben?" : "Aufgeben = verloren (Einsatz weg). Wirklich?")) return false;
+    if (rm && !confirm(rm.mode === "hardcore" ? "Aufgeben = verloren — dein Auto geht an " + rm.oppName + ". Wirklich aufgeben?" : "Aufgeben = verloren (Preisgeld weg). Wirklich?")) return false;
     send("abort", { rid: go.rid, id: myId });
     resolve("aborted");
   }
@@ -349,7 +349,7 @@ const Duo = (() => {
       return;
     }
     if (rm && phase !== "result"){
-      el.innerHTML = card(`<p class="duostat" style="font-size:14px">${rm.mode === "hardcore" ? "☠ HARDCORE" : rm.stake ? "Einsatz $" + rm.stake.toLocaleString("de-CH") : "Rennen um die Ehre"} gegen <b>${esc(rm.oppName)}</b></p>
+      el.innerHTML = card(`<p class="duostat" style="font-size:14px">${rm.mode === "hardcore" ? "☠ HARDCORE" : rm.stake ? "Preisgeld $" + rm.stake.toLocaleString("de-CH") : "Rennen um die Ehre"} gegen <b>${esc(rm.oppName)}</b></p>
         <div class="spin"></div><p class="duostat">${rival ? "Uhren werden abgeglichen — Start gleich…" : "Verbinde…"}</p>`);
       return;
     }

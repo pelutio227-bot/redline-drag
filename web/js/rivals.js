@@ -297,7 +297,7 @@ const Rivals = (() => {
       window.NativeBridge?.haptic?.("heavy"); AudioSys.vsSlam?.();
       const c = p.card, P = p.prop || { mode: "cash", stake: 0 };
       popup(`<b class="rv-pop-t">↺ ${esc(c.name)} will Revanche!</b>
-        <p>${P.mode === "hardcore" ? `<b style="color:#ff5468">☠ HARDCORE</b> — Auto gegen Auto` : P.stake ? `Einsatz <b>${fmt$(P.stake)}</b>` : "Um die Ehre"} · ${esc(CAR_DEFS[c.car]?.name ?? c.car)} LV ${c.lvl}</p>`,
+        <p>${P.mode === "hardcore" ? `<b style="color:#ff5468">☠ HARDCORE</b> — Auto gegen Auto` : P.stake ? `Preisgeld <b>${fmt$(P.stake)}</b>` : "Um die Ehre"} · ${esc(CAR_DEFS[c.car]?.name ?? c.car)} LV ${c.lvl}</p>`,
         [{ label: "Annehmen", go: () => {
             if (busy()) return send("dec", { to: p.from, busy: true });
             const mid = "rv" + Math.random().toString(36).slice(2, 10);
@@ -377,7 +377,7 @@ const Rivals = (() => {
   function agree(){
     if (phase !== "match") return;
     if (m.prop.mode === "hardcore" && !m.ack) return UI.toast("Bitte zuerst die Hardcore-Warnung bestätigen.");
-    if (m.prop.mode === "cash" && m.prop.stake > S().money) return UI.toast("Nicht genug Cash für diesen Einsatz.");
+    if (m.prop.mode === "cash" && m.prop.stake > S().money) return UI.toast("Nicht genug Cash für dieses Preisgeld.");
     m.okMe = true;
     send("ok", { to: m.opp.pid, mid: m.mid, rev: m.prop.rev });
     render(); maybeStart();
@@ -585,7 +585,7 @@ const Rivals = (() => {
       ${m.oppTuning ? `<p class="duostat" style="color:var(--amb)">🔧 ${esc(o.name)} rüstet gerade in der Garage nach…</p>` : ""}
       <div class="card"><h3>Um was fahrt ihr?</h3>
         <div class="rv-modes">
-          <button class="rv-mode ${P.mode === "cash" ? "on" : ""}" data-mode="cash"><b>Normales Rennen</b><small>Cash-Einsatz · Sieger bekommt den Einsatz des Gegners</small></button>
+          <button class="rv-mode ${P.mode === "cash" ? "on" : ""}" data-mode="cash"><b>Normales Rennen</b><small>Preisgeld-Rennen · Sieger bekommt das Preisgeld des Gegners</small></button>
           <button class="rv-mode hc ${P.mode === "hardcore" ? "on" : ""}" data-mode="hardcore" ${hcBlock ? "disabled" : ""}><b>☠ HARDCORE</b><small>${hcBlock ? esc(hcBlock) : "Auto gegen Auto"}</small></button>
         </div>
         ${P.mode === "cash" ? `<div class="rv-stakes">${STAKES.map(v => `<button class="rv-stake ${P.stake === v ? "on" : ""}" data-stake="${v}" ${v > cap ? "disabled" : ""}>${v ? fmt$(v) : "Nur Ehre"}</button>`).join("")}</div>` : ""}
@@ -594,12 +594,12 @@ const Rivals = (() => {
             <p>Wer verliert, <b>verliert sein Auto</b>. Verlierst du, gehört dein <b>${esc(myCar)} (LV ${me.lvl})</b> mit allen Teilen, Talenten und Style <b>${esc(o.name)}</b> — es verschwindet aus deiner Sammlung.
                Gewinnst du, gehört sein <b>${esc(winCar)} (LV ${o.lvl})</b> dir${ownsIt ? " (du hast das Modell schon: du behältst das höhere Level, sonst gibt's Cash)" : ""}.</p>
             <p>Aufgeben, App schliessen oder Verbindung trennen zählt als <b>Niederlage</b>. Das kann nicht rückgängig gemacht werden.</p>
-            <label class="rv-ack"><input type="checkbox" id="rvAck" ${m.ack ? "checked" : ""}> Ich habe verstanden und setze mein Auto.</label>
+            <label class="rv-ack"><input type="checkbox" id="rvAck" ${m.ack ? "checked" : ""}> Ich habe verstanden: Es geht um mein Auto.</label>
           </div>` : ""}
         <p class="duostat" style="color:#8fd0ff">+${xpFor(true)} XP bei Sieg · +${xpFor(false)} XP bei Niederlage</p>
       </div>
       <p class="duostat">${m.okOpp ? `<b style="color:var(--grn)">${esc(o.name)} hat zugestimmt ✓</b>` : `${esc(o.name)} entscheidet…`}${m.okMe ? " · Du hast zugestimmt ✓" : ""}</p>
-      <button class="mbtn primary ${P.mode === "hardcore" ? "hcgo" : ""}" id="rvAgree" style="width:100%" ${m.okMe ? "disabled" : ""}>${m.okMe ? "Warte auf " + esc(o.name) + "…" : P.mode === "hardcore" ? "☠ ZUSTIMMEN — AUTO SETZEN" : P.stake ? `ZUSTIMMEN · ${fmt$(P.stake)}` : "ZUSTIMMEN"}</button>
+      <button class="mbtn primary ${P.mode === "hardcore" ? "hcgo" : ""}" id="rvAgree" style="width:100%" ${m.okMe ? "disabled" : ""}>${m.okMe ? "Warte auf " + esc(o.name) + "…" : P.mode === "hardcore" ? "☠ ZUSTIMMEN — PINK-SLIP-RENNEN" : P.stake ? `ZUSTIMMEN · ${fmt$(P.stake)}` : "ZUSTIMMEN"}</button>
       <button class="mbtn" id="rvNo" style="width:100%;margin-top:8px">${m.friend ? "Ablehnen" : "Ablehnen — weitersuchen"}</button>`;
     UI.carImage(me.car, me.style).then(i => { const x = $("rvImgMe"); if (x) x.src = i.src; });
     if (CAR_DEFS[o.car]) UI.carImage(o.car, o.style).then(i => { const x = $("rvImgOpp"); if (x) x.src = i.src; });

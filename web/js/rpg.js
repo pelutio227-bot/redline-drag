@@ -67,7 +67,7 @@ const DRIVERS = [
   { id:"mike",      r:"grey",   name:"SCHRAUBER-MIKE",title:"Hinterhof-Mechaniker",    side:"gut",  car:"urban",  q:"Hab ich heute Nacht zusammengeschweisst." },
   // Grün — Szene-Locals
   { id:"nadia",     r:"green",  name:"NADIA NIGHT",   title:"Techno-Racerin",          side:"gut",  car:"bliz",   q:"Mein Takt: 140 BPM. Und deiner?" },
-  { id:"lorenzo",   r:"green",  name:"LUCKY LORENZO", title:"Der Zocker",              side:"grau", car:"temp",   q:"Ich setze alles. Immer." },
+  { id:"lorenzo",   r:"green",  name:"LUCKY LORENZO", title:"Der Draufgänger",              side:"grau", car:"temp",   q:"Vollgas. Immer." },
   { id:"yuki",      r:"green",  name:"YUKI FROST",    title:"Die Stille",              side:"gut",  car:"strat",  q:"…" },
   { id:"brutus",    r:"green",  name:"BRUTUS",        title:"Türsteher vom Hafenclub", side:"böse", car:"apex",   q:"Du kommst hier nicht vorbei." },
   { id:"sandro",    r:"green",  name:"SANDRO LIVE",   title:"Influencer",              side:"grau", car:"samura", q:"Like den Stream, während ich dich abhänge!" },

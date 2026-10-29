@@ -1203,7 +1203,7 @@ const UI = (() => {
 
   function duoWagerResults(r){
     const w = r.wager, k = save.current, won = r.status === "win" || r.status === "forfeit";
-    $("resSub").textContent = (w.mode === "hardcore" ? "☠ HARDCORE · " : w.stake ? `Einsatz ${fmt$(w.stake)} · ` : "Rivalen · ") + $("resSub").textContent.replace(/^Duell · /, "");
+    $("resSub").textContent = (w.mode === "hardcore" ? "☠ HARDCORE · " : w.stake ? `Preisgeld ${fmt$(w.stake)} · ` : "Rivalen · ") + $("resSub").textContent.replace(/^Duell · /, "");
     const L = [];
     if (r.status !== "aborted"){
       const g = giveXp(k, Rivals.xpFor(won)); persist();
