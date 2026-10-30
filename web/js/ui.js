@@ -6,7 +6,7 @@
 const UI = (() => {
   const SAVE_KEY = "redline:save:v2";             // Key bleibt; Inhalt ab Season 2 = v 3
   const $ = id => document.getElementById(id);
-  const fmt$ = n => "$" + Math.round(n).toLocaleString("de-CH");
+  const fmt$ = n => "🔩 " + Math.round(n).toLocaleString("de-CH");   // Spielwährung «Bolts» (30.10.)
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
   const NOUP = () => ({ engine:0, turbo:0, tires:0, trans:0, weight:0, nos:0 });
   // Werkslack der Starter (gratis): EG in Racing Rot, Euro-Hatch in Weiss, Muscle in Schwarz mit Gold-Hockeystick
@@ -100,6 +100,9 @@ const UI = (() => {
              stats: { wins:0, races:0, rar:{} }, seen: {}, styleV: 1, lastSeen: Date.now() };
   }
   const save = load();
+  // Spielzeit (Claw 30.10.): zählt nur, solange die App sichtbar ist
+  save.stats.playMs ??= 0;
+  setInterval(() => { if (document.visibilityState === "visible" && save.current){ save.stats.playMs += 30000; persist(); } }, 30000);
   function persist(){
     save.lastSeen = Date.now();
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch {}
@@ -177,11 +180,81 @@ const UI = (() => {
     if (go === "quick") return startTest();
     if (go === "duo") return needName(() => Duo.open());
     if (go === "rivals") return needName(() => Rivals.open());
+    if (go === "versus") return needName(versusPick);
     // Aus der Garage zurück, während ein Rivalen-Match offen ist (nachrüsten) → zurück ins Match
     if ((go === "menu" || go === "radar") && $("garage").classList.contains("on") && window.Rivals?.inMatch?.()) return Rivals.open();
     if (go === "radar") return openRadar();
     show(go);
   }));
+
+  // Ein Menü-Knopf für beide Mehrspieler-Modi (Claw 30.10.): Rivalen (online) oder Duell (Handy an Handy)
+  function versusPick(){
+    const on = $("rivOnline")?.style.display !== "none" ? Number($("rivOnline").textContent) || 0 : 0;
+    const w = document.createElement("div"); w.className = "rv-pop"; w.id = "versusPop";
+    w.innerHTML = `<div class="rv-pop-in"><b class="rv-pop-t">⚔ Gegen Spieler</b>
+      <div class="rv-pop-btns">
+        <button class="mbtn primary" data-v="rivals">📡 Rivalen${on ? ` · ${on} online` : ""}<small>${window.Rivals?.rivReason?.() ? `🔒 Rennen ab Auto-Level ${Rivals.RIV_LVL} · Titelkampf ab ${Rivals.HC_LVL}` : "In der Nähe &amp; Freunde — Preisgeld oder 🏆 Titelkampf"}</small></button>
+        <button class="mbtn" data-v="duo">⚔ Duell<small>Handy an Handy — Code oder QR</small></button>
+        <button class="mbtn" data-v="x">Abbrechen</button>
+      </div></div>`;
+    w.onclick = e => {
+      const v = e.target.closest("[data-v]")?.dataset.v; if (!v && e.target !== w) return;
+      w.remove();
+      if (v === "rivals") Rivals.open(); else if (v === "duo") Duo.open();
+    };
+    document.body.appendChild(w);
+  }
+
+  // ── «Mein Auto»-Karte (Claw 30.10.): Tipp aufs Auto im Menü → Stats, Chronik, Spielzeit, Freundes-QR ──
+  const fmtPlay = ms => { const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+  function qrEl(url){
+    const qr = qrcode(0, "M"); qr.addData(url); qr.make();
+    const n = qr.getModuleCount(), cell = 4, pad = 2 * cell, size = n * cell + 2 * pad;
+    const cv = document.createElement("canvas"); cv.width = cv.height = size; cv.className = "cc-qrc";
+    const g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, size, size); g.fillStyle = "#000";
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (qr.isDark(y, x)) g.fillRect(pad + x * cell, pad + y * cell, cell, cell);
+    return cv;
+  }
+  async function carCard(){
+    const k = save.current; if (!k) return;
+    const c = cur(), d = CAR_DEFS[k], rar = carRarity(k), s = c.st || { races: c.wins || 0, wins: c.wins || 0, dist: 0, top: 0, perf: 0, pvp: 0, pvpWins: 0 };
+    const owned = CAR_KEYS.filter(x => save.cars[x].owned).length, owners = (c.owners || []).length;
+    const tile = (v, l) => `<div><b>${v}</b><span>${l}</span></div>`;
+    const w = document.createElement("div"); w.className = "rv-pop"; w.id = "carCard";
+    w.innerHTML = `<div class="rv-pop-in cc">
+      <img class="cc-img" alt="">
+      <div class="cc-head"><b style="color:${RARITY[rar].col}">${esc(d.name)}</b><span><i class="cc-lv" style="--c:${RARITY[rar].col}">LV ${c.lvl}</i> ${clsChip(k)} · ${RARITY[rar].n}</span></div>
+      <div class="cc-grid">
+        ${tile(s.races, "Rennen")}${tile(s.wins, "Siege")}${tile(s.races ? Math.round(100 * s.wins / s.races) + " %" : "—", "Siegquote")}
+        ${tile(c.bestEt != null ? c.bestEt.toFixed(3) + "s" : "—", "Bestzeit")}${tile(s.top ? s.top + " km/h" : "—", "Top-Speed")}${tile((s.dist / 1000).toFixed(1) + " km", "Gefahren")}
+        ${tile(s.perf, "Perfekte Schaltungen")}${tile(s.pvp ? `${s.pvpWins} / ${s.pvp}` : "—", "Siege gegen Spieler")}${tile(c.got ? new Date(c.got).toLocaleDateString("de-CH") : "—", "In der Garage seit")}
+      </div>
+      <p class="cc-own">${owners ? `${owners + 1}. Besitzer · frühere: ${(c.owners || []).map(o => esc(o.name)).join(", ")}` : "Erstbesitzer"}</p>
+      <h4 class="cc-h">${esc(hasName() ? save.name : "Fahrer")}</h4>
+      <div class="cc-grid">
+        ${tile(fmtPlay(save.stats.playMs || 0), "Spielzeit")}${tile(save.stats.races || 0, "Radar-Rennen")}${tile(`${owned}`, "Autos in der Garage")}
+      </div>
+      <div class="cc-qr" id="ccQr"><p class="mut" style="font-size:12px">Freundes-Code lädt…</p></div>
+      <div class="rv-pop-btns"><button class="mbtn" data-v="x">Schliessen</button></div>
+    </div>`;
+    w.onclick = e => { if (e.target === w || e.target.closest("[data-v=x]")) w.remove(); };
+    document.body.appendChild(w);
+    carImage(k, c.style, true).then(im => { const x = w.querySelector(".cc-img"); if (x) x.src = im.src; });
+    const box = w.querySelector("#ccQr");
+    if (!hasName()){ box.innerHTML = `<button class="mbtn sm" id="ccName">Fahrername festlegen → Freundes-Code</button>`; box.querySelector("#ccName").onclick = () => { w.remove(); needName(carCard); }; return; }
+    const fc = await window.Rivals?.friendCode?.();
+    if (!fc){ box.innerHTML = `<p class="mut" style="font-size:12px">Freundes-Code braucht eine Internet-Verbindung.</p>`; return; }
+    box.innerHTML = `<p class="cc-qrt">Freunde scannen und fahren gegen dich</p>`;
+    box.appendChild(qrEl(fc.url));
+    box.insertAdjacentHTML("beforeend", `<div class="cc-code">${esc(fc.code)}</div><button class="mbtn sm" id="ccShare">Link teilen</button>`);
+    box.querySelector("#ccShare").onclick = async () => {
+      const txt = window.I18N ? I18N.t(`Fahr gegen mich in REDLINE! Mein Freundes-Code: ${fc.code}`) : `Fahr gegen mich in REDLINE! Mein Freundes-Code: ${fc.code}`;
+      try { if (navigator.share) return await navigator.share({ text: txt, url: fc.url }); } catch { return; }
+      try { await navigator.clipboard.writeText(`${txt} · ${fc.url}`); toast("Link kopiert"); } catch { toast("Code: " + fc.code); }
+    };
+  }
+  $("menuCar").addEventListener("click", carCard);
+  $("heroPlate").addEventListener("click", carCard);
 
   // ── Menü: Held mit Level-Plakette ÜBER dem Auto ──
   async function renderMenu(){
@@ -279,6 +352,10 @@ const UI = (() => {
   function applyWager(w){
     const opp = esc(w.oppName ?? "Gegner"), res = { match: w.match };
     if (w.status === "void"){ res.text = `Rennen gegen ${w.oppName} nicht gewertet`; res.html = `⚪ Rennen gegen <b>${opp}</b> wurde <b>nicht gewertet</b> — nichts verloren.`; return res; }
+    if (w.mode === "cash" && !w.stake){
+      res.html = w.won ? `Sieg gegen <b>${opp}</b> — um die Ehre` : `<b>${opp}</b> war schneller — um die Ehre`;
+      res.text = res.html.replace(/<[^>]+>/g, ""); return res;
+    }
     if (w.mode === "cash"){
       if (w.won){ save.money += w.stake; res.html = `<b>+${fmt$(w.stake)}</b> von ${opp}`; }
       else { save.money = Math.max(0, save.money - w.stake); res.html = `<b>−${fmt$(w.stake)}</b> an ${opp}`; }
@@ -298,6 +375,7 @@ const UI = (() => {
     } else if (w.lost){
       const k = w.car;
       loseCar(k);
+      save.lostCar = { car: k, to: w.oppName ?? "Gegner", at: Date.now() };
       res.html = `Dein <b>${esc(CAR_DEFS[k]?.name ?? k)}</b> gehört jetzt <b>${opp}</b>.`;
     }
     res.text = res.html.replace(/<[^>]+>/g, "");
@@ -484,21 +562,45 @@ const UI = (() => {
     secondary.forEach(b => row.appendChild(mk(b, "")));
     box.appendChild(row);
   }
+  // Alle 10 Radar-Rennen ohne Anmeldung: Fortschritt sichern (Apple-ID / Google) — Claw 30.10.
+  function saveReminder(){
+    if (window.Cloud?.user || $("saveRem")) return;
+    const best = Math.max(...CAR_KEYS.filter(k => save.cars[k].owned).map(k => save.cars[k].lvl || 1));
+    const w = document.createElement("div"); w.className = "rv-pop"; w.id = "saveRem";
+    w.innerHTML = `<div class="rv-pop-in"><b class="rv-pop-t">☁️ Fortschritt sichern?</b>
+      <p>${save.stats.races} Rennen, Auto bis LV ${best} — bisher nur auf diesem Gerät gespeichert. Mit Apple-ID oder Google geht nichts verloren, auch nicht bei einem neuen Handy.</p>
+      <div class="rv-pop-btns"><button class="mbtn primary" data-a="go">Jetzt sichern</button><button class="mbtn" data-a="x">Später</button></div></div>`;
+    w.onclick = e => { const a = e.target.closest("[data-a]")?.dataset.a; if (!a && e.target !== w) return; w.remove(); if (a === "go") Cloud.showSheet(); };
+    document.body.appendChild(w);
+  }
+  // Statistik pro Auto (Karte «dein Auto»): Rennen, Siege, Strecke, Top-Speed, perfekte Schaltungen
+  function trackRace(k, r){
+    const c = save.cars[k]; if (!c) return;
+    const s = c.st ??= { races: c.wins || 0, wins: c.wins || 0, dist: 0, top: 0, perf: 0, pvp: 0, pvpWins: 0 };
+    s.races++; if (r.win) s.wins++;
+    s.dist += r.dist || 0; s.perf += r.perfects || 0;
+    if (r.trap) s.top = Math.max(s.top, Math.round(r.trap));
+    if (r.pvp){ s.pvp++; if (r.win) s.pvpWins++; }
+  }
   function showResults(res, opp){
     $("hud").classList.remove("on");
     const k = save.current, c = cur(), enc = opp.enc, d = DRIVER(enc.id);
     const lvBefore = c.lvl, xpBefore = c.xp;
     let rw = { xp: 0, cash: 0, car: null }, gain = { total: 0, bonus: 0, gained: [] }, carDrop = null, spare = 0;
     if (res.et !== Infinity && (c.bestEt == null || res.et < c.bestEt)) c.bestEt = res.et;
+    if (res.et !== Infinity) trackRace(k, { win: res.win, trap: res.trap, perfects: res.perfects, dist: opp.half ? 804.67 : 402.34 });
     if (opp.mode === "enc"){
       save.stats.races++;
+      if (save.stats.races % 10 === 0 && window.Cloud?.sb && !window.Cloud.user) setTimeout(saveReminder, 2600);
       if (res.win){
         rw = encounterReward(enc, c.lvl, fxOf(k));
         if ((res.perfects || 0) >= 3) rw.xp = Math.round(rw.xp * 1.1);
         gain = giveXp(k, rw.xp);
         save.money += rw.cash;
         if (rw.car){
-          if (!save.cars[rw.car].owned){ Object.assign(save.cars[rw.car], { owned: true, got: Date.now(), lvl: 1, xp: 0, tal: {}, style: { ...save.cars[rw.car].style, ...oppStyle(enc), drop: 6 } }); carDrop = rw.car; }
+          // Beute vom NPC = SERIENZUSTAND (Claw 30.10.): Werkslack, keine Teile/Kits/Talente, Setup ab Werk —
+          // der Gegner fuhr getunt, du bekommst das nackte Auto und baust es selbst auf.
+          if (!save.cars[rw.car].owned){ save.cars[rw.car] = { ...defaultCarState(rw.car), owned: true, got: Date.now() }; carDrop = rw.car; }
           else { spare = Math.round(rarCash(enc.lvl) * 2 / 10) * 10; save.money += spare; }
         }
         save.stats.wins++; save.stats.rar[enc.rar] = (save.stats.rar[enc.rar] || 0) + 1;
@@ -538,10 +640,10 @@ const UI = (() => {
     const L = [];
     if (res.win && opp.mode === "enc"){
       L.push(`<div class="loot"><i>✦</i><div>+${gain.total} XP${gain.bonus ? ` <small>davon +${gain.bonus} ausgeruht</small>` : ""}</div></div>`);
-      if (rw.cash) L.push(`<div class="loot" style="animation-delay:.15s"><i>💵</i><div style="color:var(--grn)">+${fmt$(rw.cash)}</div></div>`);
-      else L.push(`<div class="loot" style="animation-delay:.15s"><i>·</i><div class="mut">Grau zahlt kein Preisgeld <small>ab Grün gibt's Cash</small></div></div>`);
+      if (rw.cash) L.push(`<div class="loot" style="animation-delay:.15s"><i>🔩</i><div style="color:var(--grn)">+${fmt$(rw.cash)}</div></div>`);
+      else L.push(`<div class="loot" style="animation-delay:.15s"><i>·</i><div class="mut">Grau zahlt kein Preisgeld <small>ab Grün gibt's Bolts</small></div></div>`);
       if (spare) L.push(`<div class="loot" style="animation-delay:.3s"><i>🔧</i><div>Ersatzteile: +${fmt$(spare)} <small>${CAR_DEFS[enc.car].name} hast du schon</small></div></div>`);
-      if (carDrop) L.push(`<div class="loot car r-${enc.rar}" style="animation-delay:.5s"><span class="rarlbl">${R.n} · Neues Auto</span><img id="dropImg" alt=""><b style="font-size:17px;font-style:italic">${CAR_DEFS[carDrop].name}</b><small>startet auf Level 1 · ${CLASSES[carClass(carDrop)].name}</small></div>`);
+      if (carDrop) L.push(`<div class="loot car r-${enc.rar}" style="animation-delay:.5s"><span class="rarlbl">${R.n} · Neues Auto</span><img id="dropImg" alt=""><b style="font-size:17px;font-style:italic">${CAR_DEFS[carDrop].name}</b><small>Serienzustand · Level 1 · ${CLASSES[carClass(carDrop)].name}</small></div>`);
     } else if (opp.mode === "enc"){
       const t = nextPart();
       L.push(`<div class="loot"><i>💡</i><div>${driveTip(res)}</div></div>`);
@@ -574,7 +676,9 @@ const UI = (() => {
     $("lvlupNum").textContent = L;
     $("lvlupCar").textContent = CAR_DEFS[k].name;
     const items = levels.flatMap(l => levelRewards(l).map(r => ({ ...r, l })));
-    $("lvlupUnlocks").innerHTML = items.slice(0, 6).map((r, i) => `<div style="animation-delay:${0.25 + i*0.12}s">${r.type === "talent" ? "★" : r.type === "part" ? "🔧" : r.type === "title" ? "👑" : "🎨"} <b>${esc(r.t)}</b>${levels.length > 1 ? ` <span class="mut">LV ${r.l}</span>` : ""}</div>`).join("")
+    if (levels.includes(10)) items.unshift({ type: "mode", t: "📡 Rivalen freigeschaltet — Spieler online herausfordern", l: 10 });
+    if (levels.includes(20)) items.unshift({ type: "mode", t: "🏆 Titelkampf freigeschaltet — Auto gegen Auto", l: 20 });
+    $("lvlupUnlocks").innerHTML = items.slice(0, 6).map((r, i) => `<div style="animation-delay:${0.25 + i*0.12}s">${r.type === "mode" ? "" : r.type === "talent" ? "★" : r.type === "part" ? "🔧" : r.type === "title" ? "👑" : "🎨"} <b>${esc(r.t)}</b>${levels.length > 1 ? ` <span class="mut">LV ${r.l}</span>` : ""}</div>`).join("")
       || `<div>Weiter so — das nächste Teil wartet.</div>`;
     $("lvlup").classList.add("on");
     AudioSys.levelUp();
@@ -589,7 +693,7 @@ const UI = (() => {
   }
 
   // ══ Garage ═════════════════════════════════════════════════════════════════
-  let gTab = "up", talTree = null, talSel = null;
+  let gTab = "up", talTree = null;
   let stylePreview = {};
   $("gTabs").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
@@ -635,6 +739,7 @@ const UI = (() => {
     el.innerHTML = "";
     if (!save.current) return;
     ({ up: tabParts, tal: tabTalents, style: tabStyle, tune: tabTune, cars: tabCars })[gTab]?.(el);
+    document.querySelector("#garage .gobar")?.classList.toggle("hide", gTab === "tal");
   }
 
   // ── Teile (nach Auto-Level freigeschaltet, mit Cash gekauft) ──
@@ -662,7 +767,7 @@ const UI = (() => {
         <div class="pips">${pips}</div>
         <button class="buy ${maxed ? "owned" : locked ? "lockd" : save.money >= cost ? "can" : ""}">${maxed ? "MAX" : locked ? "🔒 LV " + L : fmt$(cost)}</button>`);
       if (!maxed && !locked) row.querySelector("button").addEventListener("click", () => {
-        if (save.money < cost) return toast(`Noch ${fmt$(cost - save.money)} — fahr grüne Gegner für Cash!`);
+        if (save.money < cost) return toast(`Noch ${fmt$(cost - save.money)} — fahr grüne Gegner für Bolts!`);
         save.money -= cost; c.up[u.k] = st; persist();
         AudioSys.beep(760, .12, .3); renderGarageBody(); refreshPreview().then(celebrate); updateCash();
       });
@@ -685,28 +790,24 @@ const UI = (() => {
   }
 
   // ── Talentbaum (ab LV 10, 1 Punkt pro Level) ──
+  // TALENTBAUM v2 (Claw 30.10.): klarer Ablauf — oben «X Punkte frei», lernbare Talente leuchten gold,
+  // Tipp öffnet ein Blatt mit Rang-Punkten und goldenem «+1 Punkt»-Knopf (nicht rot wie der Radar),
+  // der Radar-Knopf unten ist im Talent-Tab ausgeblendet.
   function tabTalents(el){
     const k = save.current, c = cur(), cls = carClass(k), C = CLASSES[cls];
     const pts = talentPoints(c.lvl), spent = talentSpent(c.tal), free = pts - spent;
     talTree ??= cls;
-    el.appendChild(div("card", `<div class="passive" style="--c:${C.col}"><div class="ic">${C.icon}</div><div><b>Klassen-Fähigkeit · ${C.passive.n}</b><span>${C.passive.d} — immer aktiv. Das Meister-Talent deiner Schule (${TALENTS[cls].n}) wirkt 1.5×.</span></div></div>`));
-    const head = div("card", `<div class="tpts"><div><h3 style="margin:0">Talentpunkte</h3><span class="mut" style="font-size:12px">${c.lvl < 10 ? `Talentbaum öffnet auf Level 10 (noch ${10 - c.lvl})` : `${spent} von ${pts} verteilt · 1 Punkt pro Level`}</span></div><b>${free}</b></div>`);
-    if (spent > 0){
-      const cost = 300 * c.lvl;
-      const rb = document.createElement("button"); rb.className = "buy"; rb.style.cssText = "width:100%;margin-top:10px;font-size:12px";
-      rb.textContent = `Talente zurücksetzen · ${fmt$(cost)}`;
-      rb.onclick = () => {
-        if (save.money < cost) return toast(`Zurücksetzen kostet ${fmt$(cost)}`);
-        if (!confirm("Alle Talentpunkte dieses Autos zurücksetzen?")) return;
-        save.money -= cost; c.tal = {}; talSel = null; persist(); updateCash(); renderGarageBody(); refreshPreview();
-      };
-      head.appendChild(rb);
-    }
-    el.appendChild(head);
+    // 1) Was jetzt zu tun ist
+    el.appendChild(div("card tcta" + (c.lvl >= 10 && free > 0 ? " go" : ""), c.lvl < 10
+      ? `<b>🔒 Talentbaum ab Level 10</b><span>Noch ${10 - c.lvl} Level — fahr Rennen auf dem Strassen-Radar.</span>`
+      : free > 0
+        ? `<div class="tcta-n">${free}</div><div><b>${free === 1 ? "1 Talentpunkt frei" : `${free} Talentpunkte frei`}</b><span>Tippe ein <em>leuchtendes</em> Talent und investiere den Punkt.</span></div>`
+        : `<div class="tcta-n z">0</div><div><b>Alle Punkte verteilt</b><span>${spent} von ${pts} · nächster Punkt beim nächsten Level.</span></div>`));
+    // 2) Baum
     const card = div("card", "");
     const tabs = div("ttabs", Object.entries(TALENTS).map(([id, T]) =>
       `<button data-tr="${id}" class="${id === talTree ? "on" : ""}" style="--c:${T.col}">${T.n}<small>${treeSpent(c.tal, id)} Pkt</small></button>`).join(""));
-    tabs.onclick = e => { const b = e.target.closest("button"); if (!b) return; talTree = b.dataset.tr; talSel = null; renderGarageBody(); };
+    tabs.onclick = e => { const b = e.target.closest("button"); if (!b) return; talTree = b.dataset.tr; renderGarageBody(); };
     card.appendChild(tabs);
     const T = TALENTS[talTree];
     card.appendChild(div("", `<p class="mut" style="font-size:12px;text-align:center;margin:4px 0 0">${T.sub}${talTree === cls ? " · <b style='color:" + T.col + "'>deine Schule</b>" : ""}</p>`));
@@ -715,37 +816,68 @@ const UI = (() => {
     const inTree = treeSpent(c.tal, talTree);
     for (let tier = 0; tier <= 4; tier++){
       const nodes = T.nodes.filter(n => n.t === tier); if (!nodes.length) continue;
-      const row = div("trow", tier ? `<span class="req">${tier*TIER_REQ} Pkt</span>` : "");
+      const open = c.lvl >= 10 && inTree >= tier * TIER_REQ;
+      const row = div("trow" + (open ? "" : " lock"), tier ? `<span class="req">${open ? "" : "🔒 "}${tier*TIER_REQ} Pkt</span>` : "");
       nodes.forEach(n => {
-        const r = c.tal[n.id] || 0, av = c.lvl >= 10 && inTree >= n.t*TIER_REQ;
+        const r = c.tal[n.id] || 0, can = canLearn(c.tal, n.id, c.lvl);
         const b = document.createElement("button");
-        b.className = `tn${av ? " av" : ""}${r ? " has" : ""}${r >= n.max ? " full" : ""}${n.cap ? " cap" : ""}${talSel === n.id ? " sel" : ""}`;
-        b.innerHTML = `<span class="tic">${n.cap ? "★" : n.n[0]}</span><i class="rk">${r}/${n.max}</i><span>${esc(n.n)}</span>`;
-        b.onclick = () => { talSel = n.id; renderGarageBody(); };
+        b.className = `tn${open ? " av" : ""}${r ? " has" : ""}${r >= n.max ? " full" : ""}${n.cap ? " cap" : ""}${can ? " can" : ""}`;
+        b.innerHTML = `<span class="tic">${n.cap ? "★" : (window.I18N ? I18N.t(n.n) : n.n)[0]}</span><i class="rk">${r}/${n.max}</i><span>${esc(n.n)}</span>`;
+        b.onclick = () => talSheet(n.id);
         row.appendChild(b);
       });
       tree.appendChild(row);
     }
     card.appendChild(tree);
-    if (talSel){
-      const n = TALENT_BY_ID[talSel], r = c.tal[n.id] || 0, ok = canLearn(c.tal, n.id, c.lvl);
-      const why = r >= n.max ? "Voll ausgebaut" : c.lvl < 10 ? "Ab Level 10" : free <= 0 ? "Keine Punkte frei — nächstes Level!" : `Braucht ${n.t*TIER_REQ} Punkte in ${TALENTS[n.tree].n}`;
-      const det = div("tdet", `<b style="color:${T.col}">${esc(n.n)}</b> <span class="mut">Rang ${r}/${n.max}</span>
-        <p>${esc(n.d)}${n.max > 1 ? " — pro Rang" : ""}${n.cap && n.tree === cls ? " · <b style='color:var(--gold)'>×1.5 (deine Schule)</b>" : ""}</p>`);
-      const lb = document.createElement("button");
-      lb.className = "mbtn " + (ok ? "primary" : ""); lb.style.width = "100%";
-      lb.textContent = ok ? `Lernen (+1) · ${free} frei` : why;
-      lb.disabled = !ok;
-      lb.onclick = () => {
-        if (!canLearn(c.tal, n.id, c.lvl)) return;
-        c.tal[n.id] = r + 1; persist();
-        AudioSys.tone(880, 0.2, { gain: 0.15 }); AudioSys.tone(1320, 0.3, { gain: 0.1, at: 0.06 });
-        renderGarageBody(); refreshPreview();
-      };
-      det.appendChild(lb);
-      card.appendChild(det);
-    } else card.appendChild(div("", `<p class="mut" style="font-size:12px;text-align:center">Tippe ein Talent an.</p>`));
+    card.appendChild(div("", `<p class="tlegend"><i class="lg can"></i>lernbar <i class="lg has"></i>gelernt <i class="lg full"></i>voll <i class="lg lock"></i>gesperrt</p>`));
     el.appendChild(card);
+    // 3) Klassen-Fähigkeit + Zurücksetzen (Nebensache, unten)
+    el.appendChild(div("card", `<div class="passive" style="--c:${C.col}"><div class="ic">${C.icon}</div><div><b>Klassen-Fähigkeit · ${C.passive.n}</b><span>${C.passive.d} — immer aktiv. Das Meister-Talent deiner Schule (${TALENTS[cls].n}) wirkt 1.5×.</span></div></div>`));
+    if (spent > 0){
+      const cost = 300 * c.lvl;
+      const rb = document.createElement("button"); rb.className = "buy"; rb.style.cssText = "width:100%;font-size:12px";
+      rb.textContent = `Talente zurücksetzen · ${fmt$(cost)}`;
+      rb.onclick = () => {
+        if (save.money < cost) return toast(`Zurücksetzen kostet ${fmt$(cost)}`);
+        if (!confirm("Alle Talentpunkte dieses Autos zurücksetzen?")) return;
+        save.money -= cost; c.tal = {}; persist(); updateCash(); renderGarageBody(); refreshPreview();
+      };
+      const w = div("card", ""); w.appendChild(rb); el.appendChild(w);
+    }
+  }
+  // Talent-Blatt: Name, Wirkung, Rang-Punkte, goldener «+1 Punkt»; bleibt offen für mehrere Punkte
+  function talSheet(id){
+    $("talSheet")?.remove();
+    const c = cur(), cls = carClass(save.current), n = TALENT_BY_ID[id], T = TALENTS[n.tree];
+    const w = document.createElement("div"); w.className = "rv-pop tsheet"; w.id = "talSheet"; w.style.setProperty("--c", T.col);
+    const draw = (flash) => {
+      const r = c.tal[n.id] || 0, free = talentPoints(c.lvl) - talentSpent(c.tal), ok = canLearn(c.tal, n.id, c.lvl);
+      const why = r >= n.max ? "Voll ausgebaut ✓" : c.lvl < 10 ? "Talente ab Level 10" : free <= 0 ? "Keine Punkte frei — nächstes Level!" : `Erst ${n.t*TIER_REQ} Punkte in ${T.n} verteilen`;
+      w.innerHTML = `<div class="rv-pop-in">
+        <div class="ts-ic${n.cap ? " cap" : ""}">${n.cap ? "★" : (window.I18N ? I18N.t(n.n) : n.n)[0]}</div>
+        <b class="rv-pop-t" style="color:${T.col}">${esc(n.n)}</b>
+        <p class="ts-sub">${T.n}${n.cap ? " · Meister-Talent" : ""}</p>
+        <p class="ts-d"><span>${esc(n.d)}</span>${n.max > 1 ? " <span>— pro Rang</span>" : ""}${n.cap && n.tree === cls ? " · <b style='color:var(--gold)'>×1.5 (deine Schule)</b>" : ""}</p>
+        <div class="ts-pips${flash ? " pop" : ""}">${Array.from({ length: n.max }, (_, i) => `<i class="${i < r ? "on" : ""}"></i>`).join("")}</div>
+        <p class="ts-rank">Rang ${r}/${n.max}</p>
+        <div class="rv-pop-btns">
+          <button class="tlearn" data-a="learn" ${ok ? "" : "disabled"}>${ok ? `＋ 1 Punkt investieren` : why}</button>
+          <p class="ts-free">${free > 0 ? `${free} ${free === 1 ? "Punkt" : "Punkte"} frei` : "Keine Punkte frei"}</p>
+          <button class="mbtn" data-a="x">Fertig</button>
+        </div></div>`;
+    };
+    w.onclick = e => {
+      const a = e.target.closest("[data-a]")?.dataset.a;
+      if (a === "learn"){
+        if (!canLearn(c.tal, n.id, c.lvl)) return;
+        c.tal[n.id] = (c.tal[n.id] || 0) + 1; persist();
+        AudioSys.tone(880, 0.2, { gain: 0.15 }); AudioSys.tone(1320, 0.3, { gain: 0.1, at: 0.06 });
+        draw(true); renderGarageBody(); refreshPreview(); return;
+      }
+      if (a === "x" || e.target === w) w.remove();
+    };
+    draw(false);
+    document.body.appendChild(w);
   }
 
   // ── Style: Lack-Bibliothek, Streifen, Sticker, Felgen, Fahrwerk, Kits, Neon ──
@@ -754,7 +886,7 @@ const UI = (() => {
   function buyStyle(c, key, label, apply){
     const price = stylePrice(key);
     if (styleLock(c, key)) return toast(`${label}: ab Auto-Level ${styleUnlockLvl(key)}`);
-    if (save.money < price) return toast(`Zu wenig Cash — ${fmt$(price)} nötig. Fahr grüne Gegner!`);
+    if (save.money < price) return toast(`Zu wenig Bolts — ${fmt$(price)} nötig. Fahr grüne Gegner!`);
     save.money -= price; c.styleOwned ??= {}; c.styleOwned[key] = true;
     apply?.(); persist(); updateCash(); AudioSys.loot();
     stylePreview = {}; renderGarageBody(); refreshPreview().then(celebrate);
@@ -958,15 +1090,15 @@ const UI = (() => {
     const row = (x, i) => `<div class="rv-friend"><i class="dot"></i><div><b>${esc(x.name)}</b><small>${i === 0 ? "Erstbesitzer" : i + 1 + ". Besitzer"} · bis ${new Date(x.at).toLocaleDateString("de-CH")}</small></div>
       ${x.pid && x.pid !== me && !window.Rivals?.isFriend?.(x.pid) ? `<button class="mbtn sm" data-fr="${esc(x.pid)}" data-n="${esc(x.name)}">+ Freund</button>` : ""}</div>`;
     const d = div("card", `<h3>🧾 Fahrzeug-Chronik · ${esc(CAR_DEFS[k].name)}</h3>
-      ${o.length ? o.map(row).join("") + `<div class="rv-friend"><i class="dot on"></i><div><b>${esc(save.name)} (Du)</b><small>${o.length + 1}. Besitzer · gewonnen im Hardcore-Rennen</small></div></div>`
-        : `<p class="mut" style="font-size:12px">Erstbesitzer: <b>${esc(hasName() ? save.name : "Du")}</b>. Verlierst du es im Hardcore-Modus, bleibt dein Name für immer in der Chronik.</p>`}`);
+      ${o.length ? o.map(row).join("") + `<div class="rv-friend"><i class="dot on"></i><div><b>${esc(save.name)} (Du)</b><small>${o.length + 1}. Besitzer · gewonnen im Titelkampf</small></div></div>`
+        : `<p class="mut" style="font-size:12px">Erstbesitzer: <b>${esc(hasName() ? save.name : "Du")}</b>. Verlierst du es im Titelkampf, bleibt dein Name für immer in der Chronik.</p>`}`);
     d.querySelectorAll("[data-fr]").forEach(b => b.onclick = () => window.Rivals.addFriendPid(b.dataset.fr, b.dataset.n).then(() => renderGarageBody()));
     return d;
   }
   function tabCars(el){
     el.appendChild(ownersCard(save.current));
     const total = CAR_KEYS.filter(k => !CAR_DEFS[k].vault).length, have = CAR_KEYS.filter(k => save.cars[k].owned && !CAR_DEFS[k].vault).length;
-    el.appendChild(div("card", `<h3>Sammlung · ${have} / ${total}</h3><p class="mut" style="font-size:12px">Neue Autos gibt's nur als Beute: besiege <b style="color:var(--r-blue)">seltene</b>, <b style="color:var(--r-epic)">epische</b> oder <b style="color:var(--r-legend)">legendäre</b> Gegner und ihr Auto gehört dir — auf Level 1.</p>`));
+    el.appendChild(div("card", `<h3>Sammlung · ${have} / ${total}</h3><p class="mut" style="font-size:12px">Neue Autos gibt's nur als Beute: besiege <b style="color:var(--r-blue)">seltene</b>, <b style="color:var(--r-epic)">epische</b> oder <b style="color:var(--r-legend)">legendäre</b> Gegner und ihr Auto gehört dir — im Serienzustand auf Level 1.</p>`));
     for (const rar of [...RARITIES].reverse()){
       const ks = CAR_KEYS.filter(k => carRarity(k) === rar && (!CAR_DEFS[k].vault || save.cars[k].owned));
       if (!ks.length) continue;
@@ -1155,10 +1287,10 @@ const UI = (() => {
       const box = $("shopPacks"); if (!box) return;
       const mb = document.querySelector(".mbtn.vault small");
       const hasStore = native && Object.keys(prices).length > 0;
-      if (mb && native) mb.textContent = hasStore ? "Exklusive Legenden · Cash-Pakete" : "Exklusive Legenden der Szene";
+      if (mb && native) mb.textContent = hasStore ? "Exklusive Legenden · Bolts-Pakete" : "Exklusive Legenden der Szene";
       if (!hasStore){ box.style.display = "none"; return; }
       box.style.display = "";
-      box.innerHTML = `<h3 style="margin:18px 0 8px">Cash-Pakete</h3>
+      box.innerHTML = `<h3 style="margin:18px 0 8px">Bolts-Pakete</h3>
         <p class="mut" style="font-size:12px;margin-bottom:10px">Spielgeld für Teile und Style. Level und Talente gibt's nur auf der Strasse.</p>
         ${Object.entries(CASH).map(([id, amt]) => `<button class="buy can packbtn" data-id="${id}" style="width:100%;margin:6px 0;display:flex;justify-content:space-between;padding:14px 16px"><span>${fmt$(amt)}</span><b>${prices[id] || "…"}</b></button>`).join("")}
         <button class="buy" id="shopRestore" style="width:100%;margin-top:10px;font-size:12px;opacity:.8">Käufe wiederherstellen</button>`;
@@ -1180,6 +1312,8 @@ const UI = (() => {
     $("hud").classList.remove("on");
     const c = cur();
     if (r.myEt != null && (c.bestEt == null || r.myEt < c.bestEt)) c.bestEt = r.myEt;
+    if (["win","lose","draw","forfeit"].includes(r.status))
+      trackRace(save.current, { win: r.status === "win" || r.status === "forfeit", trap: r.trap, dist: r.myEt != null ? 402.34 : 0, pvp: true });
     persist();
     const T = { win:["SIEG!","win"], lose:["VERLOREN","lose"], draw:["UNENTSCHIEDEN","win"],
       forfeit:["SIEG!","win"], aborted:["ABGEBROCHEN","lose"], lost:["VERBINDUNG WEG","lose"] }[r.status];
@@ -1203,7 +1337,7 @@ const UI = (() => {
 
   function duoWagerResults(r){
     const w = r.wager, k = save.current, won = r.status === "win" || r.status === "forfeit";
-    $("resSub").textContent = (w.mode === "hardcore" ? "☠ HARDCORE · " : w.stake ? `Preisgeld ${fmt$(w.stake)} · ` : "Rivalen · ") + $("resSub").textContent.replace(/^Duell · /, "");
+    $("resSub").textContent = (w.mode === "hardcore" ? "🏆 TITELKAMPF · " : w.stake ? `Preisgeld ${fmt$(w.stake)} · ` : "Rivalen · ") + $("resSub").textContent.replace(/^Duell · /, "");
     const L = [];
     if (r.status !== "aborted"){
       const g = giveXp(k, Rivals.xpFor(won)); persist();
@@ -1214,17 +1348,18 @@ const UI = (() => {
     $("resLoot").innerHTML = L.join("");
     Rivals.settleAfterRace(w.mid, res => {
       const el = $("resWager"); if (!el) return;
-      el.innerHTML = res ? `<i>${w.mode === "hardcore" ? "☠" : "💵"}</i><div>${res.html}</div>` : `<i>⏳</i><div>Noch keine Entscheidung — wird beim nächsten Start abgerechnet.</div>`;
+      el.innerHTML = res ? `<i>${w.mode === "hardcore" ? "🏆" : w.stake ? "🔩" : "🏁"}</i><div>${res.html}</div>` : `<i>⏳</i><div>Noch keine Entscheidung — wird beim nächsten Start abgerechnet.</div>`;
       if (res) window.NativeBridge?.haptic?.(won ? "heavy" : "medium");
     });
     // Revanche fragen (gleiche Bedingungen) · Hardcore-Revanche · Gegner als Freund · weiter
     const terms = { mode: w.mode, stake: w.stake };
     const sec = [];
-    if (w.mode !== "hardcore") sec.push({ label: "☠ Revanche Hardcore", go: () => { Duo.leave(true); Rivals.rematch(w.oppPid, w.oppName, { mode: "hardcore", stake: 0 }); } });
+    if (w.mode !== "hardcore") sec.push({ label: "🏆 Revanche Titelkampf", go: () => { Duo.leave(true); Rivals.rematch(w.oppPid, w.oppName, { mode: "hardcore", stake: 0 }); } });
     if (!window.Rivals?.isFriend?.(w.oppPid)) sec.push({ label: "+ Freund", go: async () => { await Rivals.addFriendPid(w.oppPid, w.oppName); setResButtons(main, sec.filter(b => b.label !== "+ Freund")); } });
     sec.push({ label: "📡 Neue Rivalen", go: () => { Duo.leave(true); Rivals.open("near"); } });
     sec.push({ label: "Menü", go: () => Duo.leave() });
-    const main = { label: "↺ Revanche fragen", go: () => { Duo.leave(true); Rivals.rematch(w.oppPid, w.oppName, terms); } };
+    const lostIt = w.mode === "hardcore" && w.lost;
+    const main = { label: lostIt ? "↺ Revanche — mit anderem Auto" : "↺ Revanche fragen", go: () => { Duo.leave(true); Rivals.rematch(w.oppPid, w.oppName, lostIt ? { mode: "cash", stake: 0 } : terms); } };
     setResButtons(main, sec);
     show("results");
   }

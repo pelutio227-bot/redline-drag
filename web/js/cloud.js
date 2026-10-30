@@ -46,7 +46,7 @@ const Cloud = (() => {
     const pend = sessionStorage.getItem("redline:pair");
     if (pend) grantPair(pend);
     // Spielername aus Google übernehmen, falls noch Standard
-    const gname = (u.user_metadata?.name || u.email || "RACER").split(" ")[0].toUpperCase().slice(0,12);
+    const gname = (u.user_metadata?.name || u.user_metadata?.full_name || (u.email && !/privaterelay/.test(u.email) ? u.email : "") || "RACER").split(" ")[0].toUpperCase().slice(0,12);
     if (UI.save.name === "RACER") UI.save.name = gname;
     renderStatus();
     try {
@@ -146,6 +146,24 @@ const Cloud = (() => {
       options: { redirectTo: location.origin + location.pathname },
     });
   }
+  // SIGN IN WITH APPLE (Claw 30.10.): Web = OAuth über die Services-ID ch.abooz.web (Supabase),
+  // App = natives Plugin (SignInWithApple) + signInWithIdToken — ohne Plugin wird der Knopf in der App nicht gezeigt.
+  const appleNative = () => !!(window.Capacitor?.isNativePlatform?.() && window.Capacitor?.Plugins?.SignInWithApple);
+  const appleAvailable = () => !window.Capacitor?.isNativePlatform?.() || appleNative();
+  async function loginApple(){
+    if (!sb) return;
+    if (appleNative()){
+      try {
+        const raw = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join("");
+        const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw))), b => b.toString(16).padStart(2, "0")).join("");
+        const r = await window.Capacitor.Plugins.SignInWithApple.authorize({ clientId: "com.pelutio.redline", redirectURI: "https://l.abooz.ch/", scopes: "email name", nonce: hash });
+        const { error } = await sb.auth.signInWithIdToken({ provider: "apple", token: r.response.identityToken, nonce: raw });
+        if (error) throw error;
+      } catch(e){ if (!/cancel|1001/i.test(String(e?.message || e))) UI.toast("Apple-Anmeldung fehlgeschlagen"); }
+      return;
+    }
+    await sb.auth.signInWithOAuth({ provider: "apple", options: { redirectTo: location.origin + location.pathname } });
+  }
   // E-Mail-Code-Login — funktioniert ohne Google-Konfiguration
   async function loginMail(){
     if (!sb) return;
@@ -182,7 +200,8 @@ const Cloud = (() => {
         <b style="font-size:16px;font-style:italic">ANMELDEN</b>
         <p style="font-size:11.5px;color:#8E92A3;margin:4px 0 14px">${pending
           ? "Danach wird das andere Gerät automatisch gekoppelt."
-          : "Fortschritt in der Cloud sichern — auf allen Geräten."}</p>
+          : "Fortschritt sichern — mit Apple-ID oder Google auf allen Geräten."}</p>
+        ${appleAvailable() ? `<button data-act="apple" style="display:block;width:100%;padding:14px;border-radius:14px;background:#000;color:#fff;border:1px solid rgba(255,255,255,.28);font-weight:800;font-size:14px;margin-bottom:9px"> Mit Apple anmelden</button>` : ""}
         <button data-act="google" style="display:block;width:100%;padding:14px;border-radius:14px;background:#fff;color:#111;font-weight:800;font-size:14px;margin-bottom:9px">Mit Google anmelden</button>
         ${pending ? "" : `<button data-act="qr" style="display:block;width:100%;padding:14px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);font-weight:800;font-size:14px;margin-bottom:9px">📱 Per QR-Code — mit dem Handy anmelden</button>`}
         <button data-act="mail" style="display:block;width:100%;padding:14px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);font-weight:800;font-size:14px">Per E-Mail-Code anmelden</button>
@@ -192,6 +211,7 @@ const Cloud = (() => {
       const act = e.target.dataset?.act;
       if (e.target === sheet || act === "x"){ sessionStorage.removeItem("redline:pair"); hideSheet(); }
       else if (act === "google"){ login(); }
+      else if (act === "apple"){ loginApple(); }
       else if (act === "mail"){ hideSheet(); loginMail(); }
       else if (act === "qr"){ pairStart(); }
     });
@@ -276,7 +296,7 @@ const Cloud = (() => {
       b.onclick = logout;
       if (m) m.style.display = "none";
     } else {
-      b.innerHTML = `Anmelden — Google / QR <em>Fortschritt in der Cloud sichern</em>`;
+      b.innerHTML = `Anmelden — ${appleAvailable() ? "Apple / " : ""}Google / QR <em>Fortschritt in der Cloud sichern</em>`;
       b.classList.remove("in");
       b.onclick = showSheet;
       if (m){ m.style.display = ""; m.onclick = loginMail; }

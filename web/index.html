@@ -68,7 +68,7 @@
     background:radial-gradient(52% 62% at 50% 66%,rgba(255,255,255,.08),transparent 72%)}
   #menuCarName{font-size:12px;font-weight:800;font-style:italic;letter-spacing:.14em;color:var(--mut)}
   .cash{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);right:16px;background:rgba(20,20,28,.85);border:1px solid var(--line);padding:8px 14px;border-radius:99px;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;z-index:5}
-  .cash::before{content:"$ ";color:var(--grn)}
+  .cash::before{content:"🔩 ";color:var(--grn)}
   #lvlPill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:16px;background:rgba(20,20,28,.85);border:1px solid var(--line);padding:8px 14px;border-radius:99px;font-weight:900;font-size:13px;z-index:5;display:flex;align-items:center;gap:8px;font-style:italic;white-space:nowrap}
   #lvlPill i{display:block;width:0;height:5px;max-width:52px;min-width:0;background:#6EA8FF;border-radius:3px;transition:width .5s;flex:0 0 auto}
 
@@ -258,6 +258,11 @@
   /* Results */
   #results{align-items:center;justify-content:center;text-align:center;background:rgba(8,8,12,.6);backdrop-filter:blur(14px)}
   .rescard{background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:28px 24px;width:min(380px,92vw)}
+  /* Ergebnis-Karte nie höher als der Bildschirm (Auto-Beute!): Inhalt scrollt, Knöpfe kleben unten (Claw 30.10.) */
+  .rescard{max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 20px);overflow-y:auto;overscroll-behavior:contain}
+  .rescard .resbtns{position:sticky;bottom:-28px;margin:16px -24px -28px;padding:12px 24px calc(16px + env(safe-area-inset-bottom,0px));
+    background:linear-gradient(180deg,rgba(20,20,28,0),var(--panel) 18px);z-index:2}
+  .loot.car img{max-height:22vh;object-fit:contain}
   .rescard .big{font-size:46px;font-weight:900;font-style:italic;letter-spacing:-.03em}
   .rescard .big.win{color:var(--grn);text-shadow:0 0 40px rgba(43,224,94,.4)}
   .rescard .big.lose{color:var(--red)}
@@ -426,14 +431,57 @@
   .rv-pop-in{width:min(380px,100%);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:20px;text-align:center;animation:luIn .35s both}
   .rv-pop-t{display:block;font-size:18px;font-weight:900;margin-bottom:6px} .rv-pop-in p{color:#c9ccd8;font-size:13.5px;margin:6px 0}
   .rv-pop-btns{display:flex;flex-direction:column;gap:8px;margin-top:14px} .rv-pop-btns .mbtn{width:100%}
+  .rv-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px} .rv-row2 .mbtn{padding:12px 6px;font-size:13px}
+  .rv-chg{border-color:#ffb020!important;animation:luIn .35s both}
+  .rv-chance{font-size:12.5px;font-weight:800;margin:8px 0 0;padding:9px 12px;border-radius:12px;text-align:center}
+  .rv-chance.fair{color:#2be05e;background:rgba(43,224,94,.08);border:1px solid rgba(43,224,94,.3)}
+  .rv-chance.fav{color:#8fd0ff;background:rgba(143,208,255,.08);border:1px solid rgba(143,208,255,.3)}
+  .rv-under{border-color:#ffb020!important} .rv-none{border-color:#ff5468!important;background:rgba(255,84,104,.08)!important}
+  .rv-alts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px} .rv-alts .mbtn{flex:1 1 auto}
+  .rv-pick{max-height:calc(100dvh - 40px);overflow-y:auto}
+  .rv-plist{display:flex;flex-direction:column;gap:6px;margin-top:10px;text-align:left}
+  .rv-pc{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-radius:12px;background:var(--panel2);border:1px solid var(--line)}
+  .rv-pc.cur{border-color:#8fd0ff} .rv-pc:disabled{opacity:.45}
+  .rv-pc b{display:block;font-size:14px;font-style:italic} .rv-pc small{display:block;font-size:11px;color:var(--mut);font-weight:700}
+  .rv-pc i{font-style:normal;font-size:11px;font-weight:900;padding:3px 8px;border-radius:99px;white-space:nowrap}
+  .rv-pc i.eq{color:#2be05e;background:rgba(43,224,94,.12)} .rv-pc i.lo{color:#ffb020;background:rgba(255,176,32,.12)} .rv-pc i.hi{color:#ff5468;background:rgba(255,84,104,.12)} .rv-pc i.no{color:var(--mut)}
+  #menuCar,#heroPlate{cursor:pointer}
+  .rv-pop-in.cc{max-height:calc(100dvh - 40px);overflow-y:auto;padding:16px}
+  .cc-img{width:100%;max-width:300px;display:block;margin:-6px auto 2px;filter:drop-shadow(0 14px 18px rgba(0,0,0,.6))}
+  .cc-head{text-align:center;margin-bottom:10px} .cc-lv{font-style:normal;font-weight:900;color:var(--c);border:1px solid var(--c);border-radius:99px;padding:1px 7px;margin-right:4px}
+  .cc-head b{display:block;font-size:18px;font-weight:900;font-style:italic} .cc-head span{font-size:11px;color:var(--mut);font-weight:700}
+  .cc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .cc-grid div{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;padding:8px 4px}
+  .cc-grid b{display:block;font-size:15px;font-weight:900;font-variant-numeric:tabular-nums} .cc-grid span{display:block;font-size:10px;color:var(--mut);font-weight:700;margin-top:2px}
+  .cc-own{font-size:11.5px!important;color:var(--mut)!important;margin:8px 0 2px!important}
+  .cc-h{margin:12px 0 6px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+  .cc-qr{margin-top:12px;display:flex;flex-direction:column;align-items:center;gap:6px}
+  .cc-qrc{width:150px;height:150px;border-radius:10px;image-rendering:pixelated}
+  .cc-qrt{font-size:12px!important;margin:0!important} .cc-code{font-size:20px;font-weight:900;letter-spacing:.3em}
   .rv-cmp-h,.rv-cmp-r{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px;align-items:center;padding:6px 0;font-size:13px}
   .rv-cmp-h b{font-size:11px;color:var(--mut);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .rv-cmp-r{border-top:1px solid var(--line)} .rv-cmp-r span{color:var(--mut)} .rv-cmp-r b{text-align:right;font-variant-numeric:tabular-nums}
   .rv-cmp-r b.w{color:var(--grn)}
   .resrow{flex-wrap:wrap}
   .loot.hcl{border:1px solid rgba(255,45,64,.6)}
-  @media (min-width:700px) and (min-height:1000px){ #menu > :not(.cash){zoom:1.3} #menu{gap:8px} }
-  @media (max-height:700px){ .rescard{padding:20px 18px} .rescard .big{font-size:38px} .resgrid{margin-top:10px;gap:6px} .resgrid div{padding:8px 10px} }
+  @media (min-width:700px) and (min-height:1000px) and (orientation:portrait){ #menu > :not(.cash){zoom:1.3} #menu{gap:8px} }
+  /* QUERFORMAT (Claw 30.10.): Menü zweispaltig — links Logo + Auto, rechts die Knöpfe, ohne Scrollen.
+     Hochformat: .mleft/.mright sind «unsichtbar» (display:contents) → alles wie bisher. */
+  .mleft,.mright{display:contents}
+  @media (orientation:landscape) and (min-aspect-ratio:6/5){
+    #menu{flex-direction:row;align-items:center;justify-content:center;gap:min(6vw,72px);
+      padding:calc(env(safe-area-inset-top,0px) + 12px) max(env(safe-area-inset-right,0px),24px) calc(env(safe-area-inset-bottom,0px) + 12px) max(env(safe-area-inset-left,0px),24px)}
+    .mleft,.mright{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
+    .mleft{flex:0 1 auto} .mright{flex:0 0 min(380px,40vw)}
+    #menu .kick{margin-top:0}
+    #menu h1{font-size:min(76px,13vh)}
+    #menuCar{width:min(440px,42vw,95vh)}
+    #menu .menu-btns{margin-top:0;width:100%;gap:min(10px,1.6vh)}
+    #menu .menu-btns .mbtn{padding-top:min(13px,1.9vh);padding-bottom:min(13px,1.9vh)}
+  }
+  @media (orientation:landscape) and (min-aspect-ratio:6/5) and (min-height:900px){ .mleft,.mright{zoom:1.2} }
+  @media (orientation:landscape) and (min-aspect-ratio:6/5) and (max-height:560px){ .mright{padding-top:30px} }
+  @media (max-height:700px){ .rescard .resbtns{bottom:-20px;margin:12px -18px -20px;padding:10px 18px 14px} .rescard{padding:20px 18px} .rescard .big{font-size:38px} .resgrid{margin-top:10px;gap:6px} .resgrid div{padding:8px 10px} }
 
   /* ═══ Season 2 (28.10.2026): Auto-Level, Radar, VS, Loot, Talente ═══ */
   :root{ --r-grey:#9DA3B4; --r-green:#2BE05E; --r-blue:#3D8BFF; --r-epic:#B25CFF; --r-legend:#FF9A1F; --gold:#FFD34D }
@@ -596,6 +644,36 @@
   .tn .rk{position:absolute;top:44px;right:-2px;font-size:10px;font-weight:900;padding:1px 5px;border-radius:6px;background:#0b0b10;border:1px solid #34343f;color:#c6c9d4}
   .tn.has .rk{color:var(--c);border-color:var(--c)}
   .tn span{font-size:9.5px;font-weight:800;text-align:center;line-height:1.15;color:#a5a9b8}
+  /* Talentbaum v2 (30.10.) */
+  .gobar.hide{display:none}
+  .tcta{display:flex;align-items:center;gap:12px}
+  .tcta b{display:block;font-size:15px} .tcta span{display:block;font-size:12px;color:var(--mut);margin-top:2px} .tcta em{font-style:normal;color:var(--gold);font-weight:800}
+  .tcta.go{border-color:rgba(255,211,77,.55);box-shadow:0 0 0 1px rgba(255,211,77,.25),0 0 24px rgba(255,211,77,.12)}
+  .tcta-n{flex:0 0 52px;height:52px;border-radius:16px;display:grid;place-items:center;font-size:28px;font-weight:900;font-style:italic;color:#1a1300;background:linear-gradient(145deg,#ffe48a,#ffb020)}
+  .tcta-n.z{color:var(--mut);background:var(--panel2)}
+  .tree{padding:6px 0 2px} .trow{gap:18px;margin:6px 0}
+  .tn{width:76px} .tn .tic{width:64px;height:64px;font-size:22px}
+  .tn .rk{top:50px}
+  .trow.lock{opacity:.45}
+  .tn.can .tic{border-color:var(--gold);color:#fff;box-shadow:0 0 0 2px rgba(255,211,77,.35),0 0 18px rgba(255,211,77,.45);animation:tnPulse 1.6s ease-in-out infinite}
+  @keyframes tnPulse{50%{box-shadow:0 0 0 4px rgba(255,211,77,.18),0 0 26px rgba(255,211,77,.65)}}
+  .tlegend{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;font-size:10.5px;color:var(--mut);margin:10px 0 0;font-weight:700}
+  .tlegend .lg{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px;border:1.5px solid #555a6a}
+  .tlegend .lg.can{border-color:var(--gold);box-shadow:0 0 6px rgba(255,211,77,.7)} .tlegend .lg.has{border-color:#8fd0ff;background:rgba(143,208,255,.25)}
+  .tlegend .lg.full{border-color:var(--gold);background:var(--gold)} .tlegend .lg.lock{opacity:.45}
+  .tsheet{align-items:flex-end} .tsheet .rv-pop-in{border-color:color-mix(in srgb,var(--c) 45%,var(--line));margin-bottom:env(safe-area-inset-bottom,0px)}
+  .ts-ic{width:70px;height:70px;margin:0 auto 8px;border-radius:18px;display:grid;place-items:center;font-size:28px;font-weight:900;color:var(--c);border:2px solid var(--c);background:linear-gradient(145deg,color-mix(in srgb,var(--c) 28%,#1d1d26),#121218)}
+  .ts-ic.cap{border-radius:50%}
+  .ts-sub{font-size:11px!important;font-weight:800;letter-spacing:.12em;color:var(--mut)!important;margin:0!important}
+  .ts-d{font-size:14px!important;color:#e7e9f0!important;margin:10px 0!important}
+  .ts-pips{display:flex;justify-content:center;gap:7px;margin:12px 0 4px}
+  .ts-pips i{width:22px;height:8px;border-radius:4px;background:#2a2a35;border:1px solid #3a3a48}
+  .ts-pips i.on{background:var(--c);border-color:var(--c);box-shadow:0 0 8px color-mix(in srgb,var(--c) 70%,transparent)}
+  .ts-pips.pop i.on:last-of-type{animation:luIn .35s both}
+  .ts-rank{font-size:12px!important;font-weight:800;color:var(--mut)!important;margin:2px 0 0!important}
+  .tlearn{width:100%;padding:15px 10px;border-radius:14px;font-size:15px;font-weight:900;letter-spacing:.04em;color:#1a1300;background:linear-gradient(145deg,#ffe48a,#ffb020);border:0;box-shadow:0 6px 22px rgba(255,176,32,.35)}
+  .tlearn:active{transform:scale(.98)} .tlearn:disabled{color:var(--mut);background:var(--panel2);box-shadow:none;font-size:13px}
+  .ts-free{font-size:12px!important;font-weight:800;color:var(--gold)!important;margin:0!important}
   .tdet{margin-top:6px;padding:14px;border-radius:14px;background:var(--panel2);border:1px solid var(--line)}
   .tdet b{font-size:15px}.tdet p{font-size:12.5px;color:#c6c9d4;margin:6px 0 10px}
   .coll{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -648,22 +726,25 @@
 <!-- Hauptmenü -->
 <div class="screen" id="menu">
   <div class="cash" id="cash1">0</div>
+  <div class="mleft">
   <span class="kick">Season 2 · Street Battles</span>
   <h1 class="display">RED<span class="rl">LINE</span></h1>
   <div id="heroPlate"></div>
   <img id="menuCar" alt="">
   <div id="heroXp"></div>
+  </div>
+  <div class="mright">
   <div class="menu-btns">
     <button class="mbtn primary radarbtn" data-go="radar">Strassen-Radar<small>Herausforderer suchen</small></button>
     <button class="mbtn" data-go="garage" id="menuGarage">Garage<small>Teile · Talente · Style · Sammlung</small></button>
-    <button class="mbtn" data-go="duo">⚔ Duell<small>Gegen Freunde — Handy an Handy, Code oder QR</small></button>
-    <button class="mbtn rivbtn" data-go="rivals">📡 Rivalen<b class="rivon" id="rivOnline" style="display:none">0</b><small>In der Nähe &amp; Freunde — um Cash oder ☠ Hardcore</small></button>
-    <button class="mbtn vault" data-go="vault">🔑 VAULT &amp; SHOP<small>Exklusive Legenden · Cash-Pakete · Autos sofort freischalten</small></button>
+    <button class="mbtn rivbtn" data-go="versus">⚔ Gegen Spieler<b class="rivon" id="rivOnline" style="display:none">0</b><small>Rivalen online · Duell Handy an Handy</small></button>
+    <button class="mbtn vault" data-go="vault">🔑 VAULT &amp; SHOP<small>Exklusive Legenden · Bolts-Pakete · Autos sofort freischalten</small></button>
   </div>
   <button id="cloudBtn"></button>
   <button id="cloudMail">oder per E-Mail-Code anmelden</button>
   <button id="langBtn" class="langbtn" aria-label="Sprache / Language"></button>
   <button id="adminLink" style="display:none" onclick="location.href='admin.html'">🛠 Team-Admin</button>
+  </div>
 </div>
 
 <!-- Rivalen: Spieler in der Nähe + Freunde (rivals.js) -->
@@ -760,7 +841,7 @@
 <script>window.VAULT_LINK = "https://buy.stripe.com/5kQfZidi1fNdefBeus1kA02";</script>
 <script src="js/vendor/supabase.js?v=15"></script>
 <script src="js/vendor/qrcode.js?v=17"></script>
-<script src="js/i18n-en.js?v=4"></script>
+<script src="js/i18n-en.js?v=8"></script>
 <script src="js/i18n.js?v=2"></script>
 <script src="assets/cars/meta.js?v=28"></script>
 <script src="assets/cars/kitmeta.js?v=24"></script>
@@ -770,10 +851,10 @@
 <script src="js/sim.js?v=27"></script>
 <script src="js/perf.js?v=4"></script>
 <script src="js/game.js?v=34"></script>
-<script src="js/cloud.js?v=22"></script>
-<script src="js/duo.js?v=31"></script>
-<script src="js/rivals.js?v=6"></script>
-<script src="js/ui.js?v=36"></script>
+<script src="js/cloud.js?v=23"></script>
+<script src="js/duo.js?v=32"></script>
+<script src="js/rivals.js?v=12"></script>
+<script src="js/ui.js?v=40"></script>
 <script>
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>

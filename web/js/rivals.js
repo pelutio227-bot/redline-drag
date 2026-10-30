@@ -20,13 +20,14 @@ const Rivals = (() => {
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
   const S = () => UI.save;
-  const fmt$ = n => "$" + Math.round(n).toLocaleString("de-CH");
+  const fmt$ = n => "🔩 " + Math.round(n).toLocaleString("de-CH");   // Spielwährung «Bolts»
   const STAKES = [0, 500, 2000, 10000, 50000];
   const TIERS = [
-    { till: 10, geo: "g4", dl: 3,  label: "in deiner Nähe · ~40 km" },
-    { till: 22, geo: "g3", dl: 5,  label: "in deiner Region · ~150 km" },
-    { till: 40, geo: "g2", dl: 10, label: "im ganzen Land" },
-    { till: 1e9, geo: null, dl: 20, label: "überall" },
+    // de = erlaubter Unterschied der ≈ Zeit (s) — nur Gegner mit echter Chance (Claw 30.10.)
+    { till: 10, geo: "g4", dl: 3,  de: 0.25, label: "in deiner Nähe · ~40 km" },
+    { till: 22, geo: "g3", dl: 5,  de: 0.4,  label: "in deiner Region · ~150 km" },
+    { till: 40, geo: "g2", dl: 10, de: 0.6,  label: "im ganzen Land" },
+    { till: 1e9, geo: null, dl: 20, de: 0.8, label: "überall" },
   ];
   const FRIEND_LINK = c => "https://l.abooz.ch/duo/F" + c;
   let ch = null, live = false, phase = "home", tab = "near", geo = null, geoNote = "", t0 = 0, tickT = 0, matchT = 0, hbT = 0;
@@ -74,20 +75,30 @@ const Rivals = (() => {
   // ── Eigene Daten ───────────────────────────────────────────────────────────
   const carOf = () => { const k = S().current; return [k, S().cars[k]]; };
   const ownedCount = () => CAR_KEYS.filter(k => S().cars[k]?.owned).length;
+  // LEVEL-REGELN (Claw 30.10., wie PvP bei WoW): Rivalen ab Auto-Level 10, Titelkampf ab Auto-Level 20.
+  // Gilt fürs AKTIVE Auto; der Server (wager_open) prüft dasselbe.
+  const RIV_LVL = 10, HC_LVL = 20;
+  function rivReason(){
+    const [k, c] = carOf(), L = c?.lvl ?? 1;
+    return L < RIV_LVL ? `Rivalen-Rennen ab Auto-Level ${RIV_LVL} — dein ${CAR_DEFS[k].name} ist LV ${L}.` : null;
+  }
+  // Fingerabdruck eines Autos (Modell, Level, Teile, Talente, Setup): eine Zustimmung gilt nur für genau diese Daten
+  const sig = c => [c.car, c.lvl, JSON.stringify(c.up || {}), JSON.stringify(c.tal || {}), JSON.stringify(c.tune || {})].join("|");
   function hcReason(){
     const [k, c] = carOf();
-    if (c.iap || CAR_DEFS[k].vault) return "Vault-/Shop-Autos sind vom Hardcore-Modus ausgeschlossen.";
-    if (ownedCount() < 2) return "Hardcore nur mit mindestens 2 Autos — dein letztes Auto ist geschützt.";
+    if ((c.lvl ?? 1) < HC_LVL) return `Titelkampf ab Auto-Level ${HC_LVL} — dein ${CAR_DEFS[k].name} ist LV ${c.lvl ?? 1}.`;
+    if (c.iap || CAR_DEFS[k].vault) return "Vault-/Shop-Autos sind vom Titelkampf ausgeschlossen.";
+    if (ownedCount() < 2) return "Titelkampf nur mit mindestens 2 Autos — dein letztes Auto ist geschützt.";
     return null;
   }
   function card(){
     const [k, c] = carOf();
-    return { pid: pid(), name: myName(), car: k, lvl: c.lvl ?? 1, up: c.up, tune: c.tune, style: c.style, tal: c.tal ?? {}, money: S().money, hc: !hcReason() };
+    return { pid: pid(), name: myName(), car: k, lvl: c.lvl ?? 1, up: c.up, tune: c.tune, style: c.style, tal: c.tal ?? {}, money: S().money, hc: !hcReason(), hcLvl: (c.lvl ?? 1) >= HC_LVL };
   }
   const busy = () => phase === "match" || phase === "starting" || phase === "invite" || !!Duo.racing || !!Race.active?.();
   function presence(){
     const [k, c] = carOf();
-    return { pid: pid(), name: myName(), car: k, lvl: c?.lvl ?? 1, seek: phase === "search", busy: busy(), g4: geo?.g4, g3: geo?.g3, g2: geo?.g2 };
+    return { pid: pid(), name: myName(), car: k, lvl: c?.lvl ?? 1, et: myEt(), seek: phase === "search", busy: busy(), g4: geo?.g4, g3: geo?.g3, g2: geo?.g2 };
   }
   const retrack = () => { if (live) ch?.track(presence()); };
 
@@ -129,8 +140,12 @@ const Rivals = (() => {
       .on("broadcast", { event: "bye" }, mine(onBye))
       .on("broadcast", { event: "go" }, mine(onGo))
       .on("broadcast", { event: "tuning" }, mine(p => { if (phase === "match" && p.mid === m?.mid){ m.oppTuning = true; m.okMe = m.okOpp = false; extend(); render(); } }))
-      .on("broadcast", { event: "card" }, mine(p => { if (phase === "match" && p.mid === m?.mid){ m.opp = p.card; m.oppTuning = false; m.okMe = m.okOpp = false; render();
-        UI.toast(`🔧 ${p.card.name} hat nachgerüstet`); } }))
+      .on("broadcast", { event: "card" }, mine(p => { if (phase === "match" && p.mid === m?.mid){
+        const switched = p.card.car !== m.opp.car;
+        m.opp = p.card; m.oppTuning = false; m.okMe = m.okOpp = false; m.ack = false; m.oppChanged = switched ? "car" : "tune";
+        if (m.prop.mode === "hardcore" && !p.card.hc) propose("cash", 0);
+        window.NativeBridge?.haptic?.("heavy"); render();
+        UI.toast(switched ? `🚗 ${p.card.name} fährt jetzt ${CAR_DEFS[p.card.car]?.name ?? p.card.car} — Daten prüfen, neu zustimmen` : `🔧 ${p.card.name} hat nachgerüstet — neu zustimmen`); } }))
       .on("broadcast", { event: "fr" }, mine(() => loadFriends().then(render)))   // jemand hat mich als Freund hinzugefügt
       .on("presence", { event: "sync" }, onSync)
       .subscribe(st => {
@@ -139,7 +154,7 @@ const Rivals = (() => {
           live = false;
           if (phase === "search"){ phase = "error"; render(); }
           // nach Netz-Wackler neu verbinden
-          setTimeout(() => { if (!live && ch){ try { Cloud.sb.removeChannel(ch); } catch {} ch = null; connect(); } }, 5000);
+          setTimeout(() => { if (!live && ch){ try { Cloud.sb.removeChannel(ch); } catch {} ch = null; connect(); } }, 1500);
         }
       });
     clearInterval(hbT); hbT = setInterval(retrack, 15000);
@@ -188,6 +203,7 @@ const Rivals = (() => {
 
   // ── Suche in der Nähe ──────────────────────────────────────────────────────
   async function startSearch(){
+    if (rivReason()){ UI.toast(rivReason()); return toHome(); }
     phase = "locate"; render();
     if (!live){
       if (!ch) boot();
@@ -206,6 +222,7 @@ const Rivals = (() => {
   function eligible(p, T = tier()){
     if (!p.seek || p.busy || declined.has(p.pid)) return false;
     if (Math.abs((p.lvl ?? 1) - (carOf()[1].lvl ?? 1)) > T.dl) return false;
+    if (p.et != null && myEt() != null && Math.abs(p.et - myEt()) > T.de) return false;   // keine echte Chance → nicht vorschlagen
     if (!T.geo) return true;
     return !!(geo && p[T.geo] && p[T.geo] === geo[T.geo]);
   }
@@ -257,6 +274,7 @@ const Rivals = (() => {
     await loadFriends(); render(); updateBadge();
   }
   function challenge(fp){
+    if (rivReason()) return UI.toast(rivReason());
     const p = presOf(fp);
     if (!p) return UI.toast(`${fname(fp)} ist gerade nicht online.`);
     if (p.busy) return UI.toast(`${fname(fp)} fährt gerade ein Rennen.`);
@@ -264,20 +282,40 @@ const Rivals = (() => {
     clearInterval(tickT);
     UI.show("rivals");
     phase = "invite"; out = { to: fp, at: Date.now(), friend: true }; retrack();
-    send("inv", { to: fp, card: card(), friend: true });
+    send("inv", { to: fp, card: card(), friend: true }); keepInviting({ to: fp, card: card(), friend: true });
     render();
     clearTimeout(matchT);
     matchT = setTimeout(() => { if (phase === "invite"){ UI.toast(`${fname(fp)} antwortet nicht.`); toHome("friends"); } }, 30000);
   }
+  // Offene Einladung alle 3 s erneut senden, bis Antwort/Abbruch — eine Nachricht kann bei einem
+  // Verbindungs-Wackler beim Gegner verloren gehen. Der Gegner zeigt pro Absender nur EIN Popup (invSeen).
+  let resendT = 0;
+  function keepInviting(payload){
+    clearInterval(resendT);
+    resendT = setInterval(() => { if (phase !== "invite" || out?.to !== payload.to){ clearInterval(resendT); return; } send("inv", payload); }, 3000);
+  }
+  const invSeen = new Map();   // Absender → Zeitpunkt des offenen Popups
+  const invDup = from => { const t = invSeen.get(from); if (t && Date.now() - t < 30000) return true; invSeen.set(from, Date.now()); return false; };
   // Revanche (Ergebnis-Bildschirm): gleiche Bedingungen oder Hardcore — Gegner muss annehmen, dann wie gewohnt zustimmen
-  function rematch(oppPid, oppName, prop){
+  // Kanal kann nach einem Rennen kurz weg sein (Herzschlag-Timeout bei Volllast) → sofort neu verbinden
+  // und warten, bis der Gegner wieder in der Presence auftaucht (Bug 30.10.: «Keine Verbindung» bei Revanche).
+  async function ensureLive(oppPid, ms = 8000){
+    if (!live && ch && ch.state !== "joining"){ try { Cloud.sb.removeChannel(ch); } catch {} ch = null; }
+    if (!ch) connect();
+    const t = Date.now();
+    while (Date.now() - t < ms){ if (live && (!oppPid || presOf(oppPid))) return true; await new Promise(r => setTimeout(r, 250)); }
+    return live;
+  }
+  async function rematch(oppPid, oppName, prop){
+    if (rivReason()) return UI.toast(rivReason());
+    if (!live || !presOf(oppPid)){ UI.toast("Verbinde…"); await ensureLive(oppPid); }
     if (!live) return UI.toast("Keine Verbindung.");
     const p = presOf(oppPid);
     if (!p) return UI.toast(`${oppName} ist nicht mehr online.`);
     if (prop.mode === "hardcore" && hcReason()) return UI.toast(hcReason());
     UI.show("rivals");
     phase = "invite"; out = { to: oppPid, at: Date.now(), rematch: true, prop, name: oppName }; retrack();
-    send("inv", { to: oppPid, card: card(), rematch: true, prop });
+    send("inv", { to: oppPid, card: card(), rematch: true, prop }); keepInviting({ to: oppPid, card: card(), rematch: true, prop });
     render();
     clearTimeout(matchT);
     matchT = setTimeout(() => { if (phase === "invite"){ UI.toast(`${oppName} antwortet nicht.`); toHome(); } }, 30000);
@@ -291,24 +329,36 @@ const Rivals = (() => {
 
   // ── Einladung / Match ──────────────────────────────────────────────────────
   function onInvite(p){
+    if (rivReason()) return send("dec", { to: p.from, lvl: true });   // mein Auto ist unter LV 10
     // Revanche nach einem Rivalen-Rennen (auch ohne Freundschaft)
     if (p.rematch){
+      // Beide haben gleichzeitig «Revanche fragen» getippt: kleinere ID nimmt die Einladung des anderen an,
+      // die grössere wartet auf dessen «acc» (onAccept passt, weil out.to === Absender).
+      if (phase === "invite" && out?.to === p.from){
+        if (pid() > p.from) return;
+        out = null;
+        const mid = "rv" + Math.random().toString(36).slice(2, 10);
+        send("acc", { to: p.from, card: card(), mid });
+        UI.show("rivals"); return enterMatch(mid, false, p.card, isFriend(p.from), p.prop || { mode: "cash", stake: 0 });
+      }
       if (busy()) return send("dec", { to: p.from, busy: true });
+      if (invDup(p.from)) return;
       window.NativeBridge?.haptic?.("heavy"); AudioSys.vsSlam?.();
       const c = p.card, P = p.prop || { mode: "cash", stake: 0 };
       popup(`<b class="rv-pop-t">↺ ${esc(c.name)} will Revanche!</b>
-        <p>${P.mode === "hardcore" ? `<b style="color:#ff5468">☠ HARDCORE</b> — Auto gegen Auto` : P.stake ? `Preisgeld <b>${fmt$(P.stake)}</b>` : "Um die Ehre"} · ${esc(CAR_DEFS[c.car]?.name ?? c.car)} LV ${c.lvl}</p>`,
+        <p>${P.mode === "hardcore" ? `<b style="color:#ffc84a">🏆 TITELKAMPF</b> — Auto gegen Auto` : P.stake ? `Preisgeld <b>${fmt$(P.stake)}</b>` : "Um die Ehre"} · ${esc(CAR_DEFS[c.car]?.name ?? c.car)} LV ${c.lvl}</p>`,
         [{ label: "Annehmen", go: () => {
             if (busy()) return send("dec", { to: p.from, busy: true });
             const mid = "rv" + Math.random().toString(36).slice(2, 10);
             send("acc", { to: p.from, card: card(), mid });
             UI.show("rivals"); enterMatch(mid, false, c, isFriend(p.from), P);
           } },
-         { label: "Nein danke", go: () => send("dec", { to: p.from }), timeout: () => send("dec", { to: p.from }) }], 25000);
+         { label: "Nein danke", go: () => { invSeen.delete(p.from); send("dec", { to: p.from }); }, timeout: () => { invSeen.delete(p.from); send("dec", { to: p.from }); } }], 25000);
       return;
     }
     if (p.friend && isFriend(p.from)){
       if (busy() || phase === "search" && out) return send("dec", { to: p.from, busy: true });
+      if (invDup(p.from)) return;
       window.NativeBridge?.haptic?.("heavy"); AudioSys.vsSlam?.();
       const c = p.card;
       popup(`<b class="rv-pop-t">⚔ ${esc(c.name)} fordert dich heraus!</b><p>${esc(CAR_DEFS[c.car]?.name ?? c.car)} · LV ${c.lvl}</p>`,
@@ -319,10 +369,11 @@ const Rivals = (() => {
             send("acc", { to: p.from, card: card(), mid });
             UI.show("rivals"); enterMatch(mid, false, c, true);
           } },
-         { label: "Ablehnen", go: () => send("dec", { to: p.from }), timeout: () => send("dec", { to: p.from }) }], 25000);
+         { label: "Ablehnen", go: () => { invSeen.delete(p.from); send("dec", { to: p.from }); }, timeout: () => { invSeen.delete(p.from); send("dec", { to: p.from }); } }], 25000);
       return;
     }
     if (phase !== "search" || declined.has(p.from)) return send("dec", { to: p.from });
+    { const e = statsOf(p.card)?.et; if (e != null && myEt() != null && Math.abs(e - myEt()) > tier().de) return send("dec", { to: p.from }); }
     if (out && out.to !== p.from && p.from > pid()) return send("dec", { to: p.from });   // kreuzend: kleinere ID gewinnt
     out = null;
     const mid = "rv" + Math.random().toString(36).slice(2, 10);
@@ -337,12 +388,15 @@ const Rivals = (() => {
   function onDecline(p){
     if (out?.to !== p.from) return;
     out = null;
-    if (phase === "invite"){ UI.toast(p.busy ? `${fname(p.from)} ist gerade beschäftigt.` : `${fname(p.from)} hat abgelehnt.`); toHome("friends"); }
+    if (phase === "invite"){ UI.toast(p.lvl ? `${fname(p.from)} braucht ein Auto ab Level ${RIV_LVL}.` : p.busy ? `${fname(p.from)} ist gerade beschäftigt.` : `${fname(p.from)} hat abgelehnt.`); toHome("friends"); }
   }
   function defaultStake(opp){ return Math.min(S().money, opp.money ?? 0) >= 500 ? 500 : 0; }
   function enterMatch(mid, host, opp, friend, preset){
+    invSeen.delete(opp.pid); clearInterval(resendT);
+    // Ergebnis-Bildschirm des letzten Rennens ZUERST verlassen: Duo.leave → raceDone() setzt phase/m zurück —
+    // danach erst das neue Match setzen (Bug 30.10.: Revanche-Annahme landete sonst auf «home» und hing).
+    if (Duo.rivalMatch) Duo.leave(true);
     phase = "match"; clearInterval(tickT); clearTimeout(matchT);
-    if (Duo.rivalMatch) Duo.leave(true);   // Ergebnis-Bildschirm des letzten Rennens verlassen
     const prop = preset ? { mode: preset.mode, stake: Math.min(preset.stake || 0, S().money, opp.money ?? 0), rev: 1 } : { mode: "cash", stake: defaultStake(opp), rev: 0 };
     m = { mid, host, friend, opp, prop, okMe: false, okOpp: false, ack: false };
     retrack();
@@ -362,7 +416,7 @@ const Rivals = (() => {
   // Vorschlag ändern (beide Seiten dürfen) → Zustimmungen zurücksetzen
   function propose(mode, stake){
     if (phase !== "match") return;
-    if (mode === "hardcore" && (hcReason() || !m.opp.hc)) return UI.toast(hcReason() || `${m.opp.name} kann keinen Hardcore fahren.`);
+    if (mode === "hardcore" && (hcReason() || !m.opp.hc)) return UI.toast(hcReason() || `${m.opp.name} kann keinen Titelkampf fahren.`);
     m.prop = { mode, stake: mode === "hardcore" ? 0 : stake, rev: Date.now() };
     m.okMe = m.okOpp = false; m.ack = false;
     send("prop", { to: m.opp.pid, mid: m.mid, prop: m.prop });
@@ -376,22 +430,28 @@ const Rivals = (() => {
   }
   function agree(){
     if (phase !== "match") return;
-    if (m.prop.mode === "hardcore" && !m.ack) return UI.toast("Bitte zuerst die Hardcore-Warnung bestätigen.");
-    if (m.prop.mode === "cash" && m.prop.stake > S().money) return UI.toast("Nicht genug Cash für dieses Preisgeld.");
-    m.okMe = true;
-    send("ok", { to: m.opp.pid, mid: m.mid, rev: m.prop.rev });
+    if (m.prop.mode === "hardcore" && !m.ack) return UI.toast("Bitte zuerst die Titelkampf-Warnung bestätigen.");
+    if (m.prop.mode === "cash" && m.prop.stake > S().money) return UI.toast("Nicht genug Bolts für dieses Preisgeld.");
+    m.okMe = true; m.agreedSig = sig(card());
+    send("ok", { to: m.opp.pid, mid: m.mid, rev: m.prop.rev, mine: m.agreedSig, theirs: sig(m.opp) });
     render(); maybeStart();
   }
   function onOk(p){
     if (phase !== "match" || p.mid !== m.mid || p.rev !== m.prop.rev) return;
+    if (p.theirs !== sig(card()) || p.mine !== sig(m.opp)) return;   // Zustimmung zu alten Auto-Daten → ungültig
     m.okOpp = true; render(); maybeStart();
   }
   function maybeStart(){
     if (!m?.host || !m.okMe || !m.okOpp) return;
-    send("go", { to: m.opp.pid, mid: m.mid, rev: m.prop.rev });
+    if (m.agreedSig !== sig(card())){ m.okMe = false; render(); return; }
+    send("go", { to: m.opp.pid, mid: m.mid, rev: m.prop.rev, mine: sig(card()), theirs: sig(m.opp) });
     launch();
   }
-  function onGo(p){ if (phase === "match" && p.mid === m.mid && p.rev === m.prop.rev && m.okMe) launch(); }
+  function onGo(p){
+    if (!(phase === "match" && p.mid === m.mid && p.rev === m.prop.rev && m.okMe)) return;
+    if (p.theirs !== sig(card()) || p.mine !== sig(m.opp) || m.agreedSig !== sig(card())){ m.okMe = m.okOpp = false; render(); return; }
+    launch();
+  }
   async function launch(){
     phase = "starting"; clearTimeout(matchT); render();
     const [k, c] = carOf(), mm = m;
@@ -474,7 +534,7 @@ const Rivals = (() => {
         if (c?.owned && (c.got || 0) < l.at && UI.loseCar(l.car)) gone.push(`${CAR_DEFS[l.car]?.name ?? l.car} gehört ${l.to ?? "deinem Rivalen"}`);
       }
     } catch {}
-    if (gone.length) UI.toast("☠ " + gone.join(" · "));
+    if (gone.length) UI.toast("🏆 " + gone.join(" · "));
     return gone;
   }
   // XP für ein Rivalen-Rennen: zwischen Grün und Blau (nie mehr als Blau)
@@ -542,9 +602,11 @@ const Rivals = (() => {
       el.innerHTML = tabs() + `<div class="card rv-hero"><div class="rv-radar"><i></i><i></i><i></i></div>
           <h3 style="text-align:center">Rivalen in der Nähe</h3>
           <p class="duostat">Zufälliger Gegner mit ähnlichem Level, der gerade auch sucht. Du siehst sein Auto und entscheidest:
-            <b>Cash-Rennen</b> oder <b style="color:#ff5468">☠ Hardcore</b> — Auto gegen Auto.</p>
+            <b>Preisgeld-Rennen</b> oder <b style="color:#ffc84a">🏆 Titelkampf</b> — Auto gegen Auto.</p>
           <p class="duostat" style="color:#8fd0ff">Sieg: +${xpFor(true)} XP · Niederlage: +${xpFor(false)} XP</p>
-          <button class="mbtn primary" id="rvSearch" style="width:100%">📡 RIVALEN SUCHEN</button>
+          ${rivReason() ? `<div class="rv-warn"><b>🔒 ${esc(rivReason())}</b><p>Fahr Radar-Rennen, bis ein Auto LV ${RIV_LVL} hat, und wähl es in der Garage. Ein Duell Handy an Handy geht immer.</p></div>` : ""}
+          <p class="duostat">🏆 Titelkampf (Auto gegen Auto) ab Auto-Level ${HC_LVL}.</p>
+          <button class="mbtn primary" id="rvSearch" style="width:100%" ${rivReason() ? "disabled" : ""}>📡 RIVALEN SUCHEN</button>
           <p class="duostat">${n ? `${n} ${n === 1 ? "Fahrer sucht" : "Fahrer suchen"} gerade` : ""}</p></div>`;
       $("rvSearch").onclick = startSearch;
     } else {
@@ -576,30 +638,33 @@ const Rivals = (() => {
   function renderMatch(el){
     const me = card(), o = m.opp, P = m.prop;
     const cap = Math.min(S().money, o.money ?? 0);
-    const hcBlock = hcReason() || (!o.hc ? `${o.name} kann keinen Hardcore fahren (Shop-Auto oder nur 1 Auto).` : null);
+    const hcBlock = hcReason() || (!o.hc ? `${o.name} kann keinen Titelkampf fahren (${o.hcLvl === false || (o.lvl ?? 1) < HC_LVL ? `Auto erst LV ${o.lvl}, nötig ${HC_LVL}` : "Shop-Auto oder nur 1 Auto"}).` : null);
     const winCar = CAR_DEFS[o.car]?.name ?? o.car, myCar = CAR_DEFS[me.car].name;
     const ownsIt = S().cars[o.car]?.owned;
     el.innerHTML = `${m.friend ? `<p class="rv-tier">👥 Freundes-Duell</p>` : ""}<div class="rv-match">${carBox(me, true)}<div class="duelvs">VS</div>${carBox(o, false)}</div>
+      ${lostNote(me)}
+      ${m.oppChanged ? `<div class="rv-warn rv-chg"><b>${m.oppChanged === "car" ? `🚗 ${esc(o.name)} hat das Auto gewechselt` : `🔧 ${esc(o.name)} hat nachgerüstet`}</b><p>Prüf die neuen Daten unten — Zustimmungen wurden zurückgesetzt.</p></div>` : ""}
       ${compare(me, o)}
-      <button class="mbtn" id="rvTune" style="width:100%;margin-top:8px">🔧 In der Garage nachrüsten</button>
+      ${chanceBlock(me, o, P.mode === "hardcore")}
+      <div class="rv-row2"><button class="mbtn" id="rvPick">🚗 Auto wählen</button><button class="mbtn" id="rvTune">🔧 Nachrüsten</button></div>
       ${m.oppTuning ? `<p class="duostat" style="color:var(--amb)">🔧 ${esc(o.name)} rüstet gerade in der Garage nach…</p>` : ""}
       <div class="card"><h3>Um was fahrt ihr?</h3>
         <div class="rv-modes">
           <button class="rv-mode ${P.mode === "cash" ? "on" : ""}" data-mode="cash"><b>Normales Rennen</b><small>Preisgeld-Rennen · Sieger bekommt das Preisgeld des Gegners</small></button>
-          <button class="rv-mode hc ${P.mode === "hardcore" ? "on" : ""}" data-mode="hardcore" ${hcBlock ? "disabled" : ""}><b>☠ HARDCORE</b><small>${hcBlock ? esc(hcBlock) : "Auto gegen Auto"}</small></button>
+          <button class="rv-mode hc ${P.mode === "hardcore" ? "on" : ""}" data-mode="hardcore" ${hcBlock ? "disabled" : ""}><b>🏆 TITELKAMPF</b><small>${hcBlock ? esc(hcBlock) : "Auto gegen Auto"}</small></button>
         </div>
         ${P.mode === "cash" ? `<div class="rv-stakes">${STAKES.map(v => `<button class="rv-stake ${P.stake === v ? "on" : ""}" data-stake="${v}" ${v > cap ? "disabled" : ""}>${v ? fmt$(v) : "Nur Ehre"}</button>`).join("")}</div>` : ""}
         ${P.mode === "hardcore" ? `<div class="rv-warn">
-            <b>⚠️ ACHTUNG — HARDCORE</b>
+            <b>⚠️ ACHTUNG — TITELKAMPF</b>
             <p>Wer verliert, <b>verliert sein Auto</b>. Verlierst du, gehört dein <b>${esc(myCar)} (LV ${me.lvl})</b> mit allen Teilen, Talenten und Style <b>${esc(o.name)}</b> — es verschwindet aus deiner Sammlung.
-               Gewinnst du, gehört sein <b>${esc(winCar)} (LV ${o.lvl})</b> dir${ownsIt ? " (du hast das Modell schon: du behältst das höhere Level, sonst gibt's Cash)" : ""}.</p>
+               Gewinnst du, gehört sein <b>${esc(winCar)} (LV ${o.lvl})</b> dir${ownsIt ? " (du hast das Modell schon: du behältst das höhere Level, sonst gibt's Bolts)" : ""}.</p>
             <p>Aufgeben, App schliessen oder Verbindung trennen zählt als <b>Niederlage</b>. Das kann nicht rückgängig gemacht werden.</p>
-            <label class="rv-ack"><input type="checkbox" id="rvAck" ${m.ack ? "checked" : ""}> Ich habe verstanden: Es geht um mein Auto.</label>
+            <label class="rv-ack"><input type="checkbox" id="rvAck" ${m.ack ? "checked" : ""}> ${(etOf(me) ?? 0) - (etOf(o) ?? 0) > CH_NONE ? "Ich weiss, dass mein Auto keine realistische Chance hat. Verliere ich, ist es weg — selbst schuld." : "Ich habe verstanden: Es geht um mein Auto."}</label>
           </div>` : ""}
         <p class="duostat" style="color:#8fd0ff">+${xpFor(true)} XP bei Sieg · +${xpFor(false)} XP bei Niederlage</p>
       </div>
       <p class="duostat">${m.okOpp ? `<b style="color:var(--grn)">${esc(o.name)} hat zugestimmt ✓</b>` : `${esc(o.name)} entscheidet…`}${m.okMe ? " · Du hast zugestimmt ✓" : ""}</p>
-      <button class="mbtn primary ${P.mode === "hardcore" ? "hcgo" : ""}" id="rvAgree" style="width:100%" ${m.okMe ? "disabled" : ""}>${m.okMe ? "Warte auf " + esc(o.name) + "…" : P.mode === "hardcore" ? "☠ ZUSTIMMEN — PINK-SLIP-RENNEN" : P.stake ? `ZUSTIMMEN · ${fmt$(P.stake)}` : "ZUSTIMMEN"}</button>
+      <button class="mbtn primary ${P.mode === "hardcore" ? "hcgo" : ""}" id="rvAgree" style="width:100%" ${m.okMe ? "disabled" : ""}>${m.okMe ? "Warte auf " + esc(o.name) + "…" : P.mode === "hardcore" ? "🏆 ZUSTIMMEN — TITELKAMPF" : P.stake ? `ZUSTIMMEN · ${fmt$(P.stake)}` : "ZUSTIMMEN"}</button>
       <button class="mbtn" id="rvNo" style="width:100%;margin-top:8px">${m.friend ? "Ablehnen" : "Ablehnen — weitersuchen"}</button>`;
     UI.carImage(me.car, me.style).then(i => { const x = $("rvImgMe"); if (x) x.src = i.src; });
     if (CAR_DEFS[o.car]) UI.carImage(o.car, o.style).then(i => { const x = $("rvImgOpp"); if (x) x.src = i.src; });
@@ -609,6 +674,82 @@ const Rivals = (() => {
     $("rvAgree").onclick = agree;
     $("rvNo").onclick = bye;
     $("rvTune").onclick = tune;
+    $("rvPick").onclick = pickCar;
+    el.querySelectorAll("[data-alt]").forEach(b => b.onclick = () => b.dataset.alt === "__next" ? bye() : switchCar(b.dataset.alt));
+  }
+  // Nach einem verlorenen Titelkampf: klar sagen, dass das Auto weg ist und welches jetzt fährt
+  function lostNote(me){
+    const L = S().lostCar;
+    if (!L || Date.now() - L.at > 15 * 60000) return "";
+    return `<div class="rv-warn"><b>🏆 Dein ${esc(CAR_DEFS[L.car]?.name ?? L.car)} gehört jetzt ${esc(L.to)}</b>
+      <p>Für dieses Rennen fährst du deinen <b>${esc(CAR_DEFS[me.car].name)} (LV ${me.lvl})</b>. Tippe «Auto wählen», um ein anderes zu nehmen.</p></div>`;
+  }
+  function switchCar(k){
+    if (phase !== "match" || k === S().current || !S().cars[k]?.owned) return;
+    S().current = k; UI.persist();
+    if (S().lostCar) S().lostCar.at = 0;   // Hinweis erledigt
+    m.okMe = m.okOpp = false; m.ack = false; m.agreedSig = null;
+    if (m.prop.mode === "hardcore" && hcReason()) propose("cash", 0);
+    send("card", { to: m.opp.pid, mid: m.mid, card: card() }); retrack(); render();
+  }
+  // AUTO WÄHLEN im Match: alle eigenen Autos mit ≈ Zeit gegen den Gegner — «gleich stark / schwächer / stärker».
+  // Wechsel → neue Daten an den Gegner, BEIDE Zustimmungen weg (Fingerabdruck), Gegner sieht den Wechsel.
+  function pickCar(){
+    if (phase !== "match") return;
+    const o = m.opp, oEt = statsOf(o)?.et, hc = m.prop.mode === "hardcore";
+    const rows = CAR_KEYS.filter(k => S().cars[k]?.owned).map(k => {
+      const c = S().cars[k], st = statsOf({ car: k, lvl: c.lvl ?? 1, up: c.up, tune: c.tune, tal: c.tal ?? {} }), et = st?.et ?? 99;
+      const d = oEt ? et - oEt : 0, L = c.lvl ?? 1;
+      const why = L < RIV_LVL ? `ab LV ${RIV_LVL}` : hc && L < HC_LVL ? `Titelkampf ab LV ${HC_LVL}` : hc && (c.iap || CAR_DEFS[k].vault) ? "nicht im Titelkampf" : "";
+      const tag = Math.abs(d) <= 0.15 ? ["eq", "≈ gleich stark"] : d > CH_NONE ? ["no", `keine Chance · +${d.toFixed(2)}s`] : d > 0 ? ["lo", `schwächer · +${d.toFixed(2)}s`] : ["hi", `stärker · −${Math.abs(d).toFixed(2)}s`];
+      return { k, L, et, d, why, tag, cur: k === S().current };
+    }).sort((a, b) => !!a.why - !!b.why || Math.abs(a.d) - Math.abs(b.d));
+    const w = document.createElement("div"); w.className = "rv-pop"; w.id = "rvPick";
+    w.innerHTML = `<div class="rv-pop-in rv-pick"><b class="rv-pop-t">🚗 Auto für dieses Rennen</b>
+      <p>Gegner: <b>${esc(CAR_DEFS[o.car]?.name ?? o.car)} LV ${o.lvl}</b>${oEt ? ` · ≈ ${oEt.toFixed(2)}s` : ""}</p>
+      <div class="rv-plist">${rows.map(r => `<button class="rv-pc ${r.cur ? "cur" : ""}" data-k="${r.k}" ${r.why ? "disabled" : ""}>
+        <span><b>${esc(CAR_DEFS[r.k].name)}</b><small>LV ${r.L} · ≈ ${r.et.toFixed(2)}s${r.cur ? " · aktuell" : ""}</small></span>
+        <i class="${r.why ? "no" : r.tag[0]}">${r.why ? "🔒 " + r.why : r.tag[1]}</i></button>`).join("")}</div>
+      <p class="duostat">Wechselst du, sieht ${esc(o.name)} das neue Auto und muss neu zustimmen.</p>
+      <div class="rv-pop-btns"><button class="mbtn" data-x="1">Abbrechen</button></div></div>`;
+    w.onclick = e => {
+      if (e.target === w || e.target.closest("[data-x]")) return w.remove();
+      const b = e.target.closest("[data-k]"); if (!b || b.disabled) return;
+      w.remove(); switchCar(b.dataset.k);
+    };
+    document.body.appendChild(w);
+  }
+  // ── CHANCE (Claw 30.10.): ≈ Zeit-Unterschied → ausgeglichen / Aussenseiter / keine Chance ──
+  const CH_FAIR = 0.35, CH_NONE = 0.6;
+  const etCache = new Map();
+  function etOf(c){
+    const key = sig(c); if (etCache.has(key)) return etCache.get(key);
+    const v = statsOf(c)?.et ?? null; etCache.set(key, v); return v;
+  }
+  const myEt = () => { try { return etOf(card()); } catch { return null; } };
+  const chance = d => d > CH_NONE ? "none" : d > CH_FAIR ? "under" : d < -CH_NONE ? "fav" : "fair";
+  // eigene Autos mit echter Chance gegen den Gegner (für Titelkampf: LV ≥ 20, kein Shop-Auto)
+  function fairCars(oEt, hc){
+    return CAR_KEYS.filter(k => S().cars[k]?.owned && k !== S().current).map(k => {
+      const c = S().cars[k], L = c.lvl ?? 1;
+      if (L < RIV_LVL || (hc && (L < HC_LVL || c.iap || CAR_DEFS[k].vault))) return null;
+      const et = etOf({ car: k, lvl: L, up: c.up, tune: c.tune, tal: c.tal ?? {} });
+      return et != null && et - oEt <= CH_FAIR ? { k, L, d: et - oEt } : null;
+    }).filter(Boolean).sort((a, b) => Math.abs(a.d) - Math.abs(b.d)).slice(0, 4);
+  }
+  function chanceBlock(me, o, hc){
+    const a = etOf(me), b = etOf(o); if (a == null || b == null) return "";
+    const d = a - b, ch = chance(d), myN = esc(CAR_DEFS[me.car].name), oN = esc(CAR_DEFS[o.car]?.name ?? o.car);
+    if (ch === "fair") return `<p class="rv-chance fair">⚖️ Ausgeglichen — ≈ ${Math.abs(d).toFixed(2)}s Unterschied. Fahrkönnen entscheidet.</p>`;
+    if (ch === "fav") return `<p class="rv-chance fav">💪 Du bist klar stärker (≈ ${Math.abs(d).toFixed(2)}s schneller) — ${esc(o.name)} hat kaum eine Chance.</p>`;
+    const alt = fairCars(b, hc);
+    const altHtml = alt.length
+      ? `<p>Diese Autos aus deiner Sammlung hätten eine echte Chance:</p><div class="rv-alts">${alt.map(x => `<button class="mbtn sm" data-alt="${x.k}">${esc(CAR_DEFS[x.k].name)} · LV ${x.L} · ${Math.abs(x.d) <= 0.15 ? "≈ gleich" : x.d > 0 ? "+" + x.d.toFixed(2) + "s" : "−" + Math.abs(x.d).toFixed(2) + "s"}</button>`).join("")}</div>`
+      : `<p><b>Keines deiner Autos hat gegen ${oN} eine reale Chance.</b> Besser weitersuchen.</p><button class="mbtn sm" data-alt="__next">Weitersuchen</button>`;
+    if (ch === "under") return `<div class="rv-warn rv-under"><b>⚠️ Du bist Aussenseiter — ≈ ${d.toFixed(2)}s langsamer</b>
+      <p>Mit einem perfekten Start und perfekten Schaltungen ist ein Sieg möglich, aber schwer.</p>${hc ? altHtml : ""}</div>`;
+    return `<div class="rv-warn rv-none"><b>⛔ Dein ${myN} hat realistisch keine Chance</b>
+      <p>≈ ${d.toFixed(2)}s langsamer als ${esc(o.name)}s ${oN} — das holt auch die beste Fahrt nicht auf.${hc ? ` Verlierst du, ist dein ${myN} weg. <b>Auf eigenes Risiko.</b>` : ""}</p>${altHtml}</div>`;
   }
   // PS / Drehmoment / Gewicht / NOS / ≈ Zeit nebeneinander — das bessere grün
   function statsOf(c){
@@ -639,7 +780,12 @@ const Rivals = (() => {
     if (msgs.length) popup(msgs.map(x => `<p>${x.html}</p>`).join(""), [{ label: "OK" }]);
   }, 2500);
 
-  return { open, close, nameChanged, rematch, enforce, tune, inMatch, poke, addFriend, addFriendPid, isFriend: p => isFriend(p), myPid: () => pid(), challenge, settle, settleAfterRace, xpFor, raceDone,
+  // Freundes-Code für die Auto-Karte (UI): holt ihn beim ersten Mal vom Server
+  async function friendCode(){
+    if (!myCode) try { myCode = await rpc("player_hello", { p_pid: pid(), p_name: myName() }); } catch {}
+    return myCode ? { code: myCode, url: FRIEND_LINK(myCode) } : null;
+  }
+  return { rivReason, RIV_LVL, HC_LVL, open, close, nameChanged, friendCode, rematch, enforce, tune, inMatch, poke, addFriend, addFriendPid, isFriend: p => isFriend(p), myPid: () => pid(), challenge, settle, settleAfterRace, xpFor, raceDone,
     _debug: () => ({ phase, tab, geo, m, out, live, myCode, friends, online: [...online], n: everyone().length }) };
 })();
 window.Rivals = Rivals;

@@ -349,7 +349,7 @@ const Duo = (() => {
       return;
     }
     if (rm && phase !== "result"){
-      el.innerHTML = card(`<p class="duostat" style="font-size:14px">${rm.mode === "hardcore" ? "☠ HARDCORE" : rm.stake ? "Preisgeld $" + rm.stake.toLocaleString("de-CH") : "Rennen um die Ehre"} gegen <b>${esc(rm.oppName)}</b></p>
+      el.innerHTML = card(`<p class="duostat" style="font-size:14px">${rm.mode === "hardcore" ? "🏆 TITELKAMPF" : rm.stake ? "Preisgeld 🔩 " + rm.stake.toLocaleString("de-CH") : "Rennen um die Ehre"} gegen <b>${esc(rm.oppName)}</b></p>
         <div class="spin"></div><p class="duostat">${rival ? "Uhren werden abgeglichen — Start gleich…" : "Verbinde…"}</p>`);
       return;
     }
