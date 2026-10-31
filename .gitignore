@@ -9,3 +9,4 @@ ios/DerivedData
 build
 .DS_Store
 *.log
+android/keystore.properties

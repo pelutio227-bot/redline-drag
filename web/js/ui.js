@@ -28,7 +28,7 @@ const UI = (() => {
     CAR_KEYS.forEach(k => {
       const c = s.cars[k]; if (!c) return;
       const st = c.style, d = defaultCarState(k).style;
-      c.styleOwned ??= {};
+      c.styleOwned = c.styleOwned ?? ({});
       if (st.rim)     c.styleOwned["rim"+st.rim] = true;
       if (st.exhaust) c.styleOwned["exhaust"+st.exhaust] = true;
       if (st.spoiler) c.styleOwned["spoiler"+st.spoiler] = true;
@@ -46,7 +46,7 @@ const UI = (() => {
     if ((s.v ?? 0) >= 3) return;
     CAR_KEYS.forEach(k => {
       const c = s.cars[k]; if (!c) return;
-      c.tal ??= {}; c.xp = 0; c.wins ??= 0;
+      c.tal = c.tal ?? ({}); c.xp = 0; c.wins = c.wins ?? (0);
       const up = NOUP(); let lv = 1;
       if (c.owned) UPGRADES.forEach(u => {
         const map = UPMAP[u.k], old = Math.min(map.length - 1, c.up?.[u.k] | 0), st = map[old];
@@ -59,7 +59,7 @@ const UI = (() => {
     s.season2 = { fromLevel: s.level ?? 1, at: Date.now(), seen: false };
     delete s.tier; delete s.losses; delete s.level; delete s.xp;
     s.v = 3; s.pity = 0; s.restLv = 0.5; s.enc = null;
-    s.stats ??= { wins:0, races:0, rar:{} }; s.seen ??= {};
+    s.stats = s.stats ?? ({ wins:0, races:0, rar:{} }); s.seen = s.seen ?? ({});
   }
   // Season-2-Neustart (29.10.2026, Wunsch Owner): ALLE Spielstände starten einmalig bei null.
   // Bleibt: Name + bezahlte Autos (Vault/In-App, auf LV 1). Cloud: frischer Stand (s2fresh) gewinnt immer.
@@ -76,8 +76,8 @@ const UI = (() => {
     CAR_KEYS.forEach(k => { if (!s.cars[k]) s.cars[k] = defaultCarState(k); });
     if (s.current && !s.cars[s.current]?.owned) s.current = CAR_KEYS.find(k => s.cars[k].owned) ?? null;
     migrateStyle(s); migrateV3(s);
-    CAR_KEYS.forEach(k => { const c = s.cars[k]; c.lvl ??= 1; c.xp ??= 0; c.tal ??= {}; c.up = { ...NOUP(), ...c.up }; c.tune ??= defaultTune(CAR_DEFS[k]); c.style ??= defaultCarState(k).style; });
-    s.stats ??= { wins:0, races:0, rar:{} }; s.seen ??= {}; s.pity ??= 0; s.restLv ??= 0;
+    CAR_KEYS.forEach(k => { const c = s.cars[k]; c.lvl = c.lvl ?? (1); c.xp = c.xp ?? (0); c.tal = c.tal ?? ({}); c.up = { ...NOUP(), ...c.up }; c.tune = c.tune ?? (defaultTune(CAR_DEFS[k])); c.style = c.style ?? (defaultCarState(k).style); });
+    s.stats = s.stats ?? ({ wins:0, races:0, rar:{} }); s.seen = s.seen ?? ({}); s.pity = s.pity ?? (0); s.restLv = s.restLv ?? (0);
     return s;
   }
   // Ausgeruht (WoW): pro Stunde offline 5 % eines Levels, max. 1.5 Level → doppelte XP
@@ -101,7 +101,7 @@ const UI = (() => {
   }
   const save = load();
   // Spielzeit (Claw 30.10.): zählt nur, solange die App sichtbar ist
-  save.stats.playMs ??= 0;
+  save.stats.playMs = save.stats.playMs ?? (0);
   setInterval(() => { if (document.visibilityState === "visible" && save.current){ save.stats.playMs += 30000; persist(); } }, 30000);
   function persist(){
     save.lastSeen = Date.now();
@@ -576,7 +576,7 @@ const UI = (() => {
   // Statistik pro Auto (Karte «dein Auto»): Rennen, Siege, Strecke, Top-Speed, perfekte Schaltungen
   function trackRace(k, r){
     const c = save.cars[k]; if (!c) return;
-    const s = c.st ??= { races: c.wins || 0, wins: c.wins || 0, dist: 0, top: 0, perf: 0, pvp: 0, pvpWins: 0 };
+    const s = c.st = c.st ?? ({ races: c.wins || 0, wins: c.wins || 0, dist: 0, top: 0, perf: 0, pvp: 0, pvpWins: 0 });
     s.races++; if (r.win) s.wins++;
     s.dist += r.dist || 0; s.perf += r.perfects || 0;
     if (r.trap) s.top = Math.max(s.top, Math.round(r.trap));
@@ -796,7 +796,7 @@ const UI = (() => {
   function tabTalents(el){
     const k = save.current, c = cur(), cls = carClass(k), C = CLASSES[cls];
     const pts = talentPoints(c.lvl), spent = talentSpent(c.tal), free = pts - spent;
-    talTree ??= cls;
+    talTree = talTree ?? (cls);
     // 1) Was jetzt zu tun ist
     el.appendChild(div("card tcta" + (c.lvl >= 10 && free > 0 ? " go" : ""), c.lvl < 10
       ? `<b>🔒 Talentbaum ab Level 10</b><span>Noch ${10 - c.lvl} Level — fahr Rennen auf dem Strassen-Radar.</span>`
@@ -887,7 +887,7 @@ const UI = (() => {
     const price = stylePrice(key);
     if (styleLock(c, key)) return toast(`${label}: ab Auto-Level ${styleUnlockLvl(key)}`);
     if (save.money < price) return toast(`Zu wenig Bolts — ${fmt$(price)} nötig. Fahr grüne Gegner!`);
-    save.money -= price; c.styleOwned ??= {}; c.styleOwned[key] = true;
+    save.money -= price; c.styleOwned = c.styleOwned ?? ({}); c.styleOwned[key] = true;
     apply?.(); persist(); updateCash(); AudioSys.loot();
     stylePreview = {}; renderGarageBody(); refreshPreview().then(celebrate);
     toast(`${label} ✓ −${fmt$(price)}`);
@@ -906,7 +906,7 @@ const UI = (() => {
   }
   function tabStyle(el){
     const k = save.current, c = cur(), st = c.style;
-    c.styleOwned ??= {};
+    c.styleOwned = c.styleOwned ?? ({});
     const sv = (key, def) => stylePreview[key] ?? st[key] ?? def;
     // Lack
     const card = div("card", "<h3>Lackierung</h3>");
@@ -1369,7 +1369,7 @@ const UI = (() => {
   function duoStoreHint(code){
     const d = document.createElement("div");
     d.id = "duoStore";
-    d.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#0A0A0E;color:#F2F3F7";
+    d.style.cssText = "position:fixed;top:0;right:0;bottom:0;left:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#0A0A0E;color:#F2F3F7";
     d.innerHTML = `<div style="font:italic 900 26px system-ui;letter-spacing:.04em">REDLINE <span style="color:#FF2D40">DUELL</span></div>
       <div style="color:#aeb3c2;font-size:15px;max-width:320px">Du wurdest zu einem Duell eingeladen. Lade Redline Tuner und gib unter <b>Duell</b> diesen Code ein:</div>
       <div style="font:900 34px ui-monospace,Menlo,monospace;letter-spacing:.18em;color:#FFC61A">${esc(code)}</div>

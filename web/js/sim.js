@@ -202,7 +202,7 @@ function aiExpectedEt(spec, skill){
 const _etCache = {};
 function carSimET(key, cs){
   const k = key + JSON.stringify(cs.up) + JSON.stringify(cs.tal || {}) + "|" + (cs.lvl ?? 1) + "|" + cs.tune.final + "|" + cs.tune.launchRpm + "|" + cs.tune.gears.join(",");
-  return _etCache[k] ??= aiExpectedEt(buildSpec(key, cs), POT_SKILL);
+  return _etCache[k] = _etCache[k] ?? (aiExpectedEt(buildSpec(key, cs), POT_SKILL));
 }
 
 // Gegner-Auto auf eine Ziel-Rennzeit bringen (Leistung + etwas Grip skalieren)
@@ -261,7 +261,7 @@ function aiTick(ai, dt, t, green){
     if (green && t >= ai.reaction) launchRacer(r, ai.reaction, t);
   } else {
     r.throttle = 1;
-    ai.nextShift ??= ai.shiftAt();
+    ai.nextShift = ai.nextShift ?? (ai.shiftAt());
     if (r.shifting <= 0 && r.rpm >= Math.min(def.redline + 50, ai.nextShift)){
       if (doShift(r)) ai.nextShift = ai.shiftAt();
     }

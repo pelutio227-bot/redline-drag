@@ -193,7 +193,7 @@ const Cloud = (() => {
     hideSheet();
     const pending = sessionStorage.getItem("redline:pair");
     sheet = document.createElement("div");
-    sheet.style.cssText = "position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;background:rgba(6,6,10,.72);backdrop-filter:blur(4px)";
+    sheet.style.cssText = "position:fixed;top:0;right:0;bottom:0;left:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;background:rgba(6,6,10,.72);backdrop-filter:blur(4px)";
     sheet.innerHTML = `
       <div style="background:var(--panel,#14141C);border:1px solid rgba(255,255,255,.1);border-radius:22px 22px 0 0;
                   padding:20px 22px calc(env(safe-area-inset-bottom,0px) + 22px);width:min(430px,100vw);text-align:center">

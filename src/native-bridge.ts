@@ -91,7 +91,8 @@ async function openUrl(url: string): Promise<void> {
 // Push (Rivalen/Freunde): Erlaubnis fragen, bei APNs registrieren, Gerätetoken zurückgeben (null = nein/keins)
 let pushToken: Promise<string | null> | null = null;
 function pushRegister(): Promise<string | null> {
-  if (!isNative) return Promise.resolve(null);
+  // Android: Push bräuchte Firebase (google-services.json) — ohne würde register() die App abstürzen lassen
+  if (!isNative || Capacitor.getPlatform() !== "ios") return Promise.resolve(null);
   if (pushToken) return pushToken;
   pushToken = (async () => {
     try {
@@ -109,7 +110,7 @@ function pushRegister(): Promise<string | null> {
   })();
   return pushToken;
 }
-if (isNative) {
+if (isNative && Capacitor.getPlatform() === "ios") {
   // Tipp auf eine Push-Nachricht → Rivalen › Freunde öffnen
   void PushNotifications.addListener("pushNotificationActionPerformed", () => {
     const go = () => { const w = window as unknown as { Rivals?: { open: (t: string) => void } }; if (w.Rivals) w.Rivals.open("friends"); else setTimeout(go, 800); };
@@ -120,7 +121,7 @@ if (isNative) {
 const bridge = { pushRegister, isNative, iapEnabled: IAP_ENABLED, platform: Capacitor.getPlatform(), products, purchase, restore, owned, haptic, openUrl };
 (window as unknown as { NativeBridge: typeof bridge }).NativeBridge = bridge;
 
-if (isNative) {
+if (isNative && Capacitor.getPlatform() === "ios") {
   void StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
   void StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
   const mark = () => document.documentElement?.classList.add("native-app", "native-" + Capacitor.getPlatform(), IAP_ENABLED ? "iap-on" : "iap-off");

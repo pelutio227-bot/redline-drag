@@ -14,10 +14,27 @@ const Race = (() => {
   let g = cv.getContext("2d", { alpha:false });   // let: Tacho-Cache zeichnet kurz in einen eigenen Kontext
   let W=0,H=0,dpr=1;
   const BG = "#0A0A0E";
+  // AUTO-QUALITÄT: Schafft das Gerät im Rennen keine ~45 fps, wird das Pixel-Budget stufenweise
+  // gesenkt (1 → 0.7 → 0.5 → 0.35) und gemerkt. Android startet vorsichtig bei 0.7.
+  const Q = { q: 1, gaps: 0, n: 0, t0: 0 };
+  try { const v = parseFloat(localStorage.getItem("redline:q")); Q.q = v > 0 ? v : /Android/i.test(navigator.userAgent) ? 0.7 : 1; } catch { Q.q = 1; }
+  function qualityTick(gap, now){
+    if (gap > 200) return;                       // Tab im Hintergrund o. ä. nicht werten
+    if (!Q.t0) Q.t0 = now;
+    Q.gaps += gap; Q.n++;
+    if (now - Q.t0 < 2500 || Q.n < 30) return;
+    const avg = Q.gaps / Q.n; Q.gaps = 0; Q.n = 0; Q.t0 = now;
+    if (avg > 22 && Q.q > 0.36){
+      Q.q = Q.q > 0.75 ? 0.7 : Q.q > 0.55 ? 0.5 : 0.35;
+      try { localStorage.setItem("redline:q", String(Q.q)); } catch {}
+      resize();
+    }
+  }
   function resize(){
     W = window.innerWidth; H = window.innerHeight;
-    // Pixel-Budget (~2.2 MP, grosses iPhone): iPad hätte sonst 5.6 MP pro Frame → Ruckeln
-    dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1, Math.sqrt(2.2e6/(W*H))));
+    // Pixel-Budget (~2.2 MP, grosses iPhone): iPad hätte sonst 5.6 MP pro Frame → Ruckeln.
+    // × Qualitätsstufe q (Auto-Qualität, 30.10.: schwache Android-Tablets ruckelten)
+    dpr = Math.max(0.6, Math.min(2, window.devicePixelRatio||1, Math.sqrt(2.2e6*Q.q/(W*H))));
     cv.width = W*dpr; cv.height = H*dpr;
     g.setTransform(dpr,0,0,dpr,0,0);
     g.fillStyle = BG; g.fillRect(0,0,W,H);
@@ -247,6 +264,7 @@ const Race = (() => {
     const w1 = performance.now();
     draw(ddt);
     window.Perf?.frame(gap, w1 - w0, performance.now() - w1);
+    qualityTick(gap, now);
     const p = st.p;
     AudioSys.engine(p.rpm, p.throttle, p.spec.turbo ? Math.min(1, p.throttle*(p.rpm/p.spec.def.redline)) : 0);
     if (lastGas && !input.gas && p.spec.turbo && p.rpm > p.spec.def.redline*0.55 && !p.finished)
