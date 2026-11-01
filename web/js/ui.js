@@ -1211,8 +1211,7 @@ const UI = (() => {
     if (e.code === "KeyN" || e.code === "ArrowDown"){ Race.nos(false); pNos.classList.remove("hot"); }
   });
 
-  // ── VAULT (Echtgeld-Exklusivauto) ──
-  const VAULT_LINK = window.VAULT_LINK ?? "";
+  // ── VAULT (früher Echtgeld-Exklusivauto; seit 01.11. gratis-Spiel ohne Käufe — gekaufte KURO bleiben) ──
   async function renderVault(){
     const owned = !!save.cars.kuro?.owned, def = CAR_DEFS.kuro;
     const img = await carImage("kuro", owned ? save.cars.kuro.style : { hue:0, drop:12, rim:2, exhaust:2, spoiler:0, kit:0 }, true);
@@ -1221,18 +1220,7 @@ const UI = (() => {
       <div><b>${def.zone} rpm</b><span>Schaltzone (Rekord)</span></div><div><b>Episch</b><span>startet auf LV 1</span></div>`;
     const b = $("vaultBuy");
     if (owned){ b.textContent = "IN DEINER GARAGE ✓ — fahren"; b.classList.add("owned"); b.onclick = () => { save.current = "kuro"; persist(); show("garage"); }; }
-    else if (Shop.native && !Shop.price("redline_vault_kuro")){ b.textContent = "Bald im Vault erhältlich"; b.classList.add("owned"); b.onclick = null; }
-    else if (Shop.native){ b.textContent = "Kaufen — " + Shop.price("redline_vault_kuro"); b.classList.remove("owned"); b.onclick = () => Shop.buy("redline_vault_kuro"); }
-    else {
-      b.textContent = "Kaufen — CHF 4.90"; b.classList.remove("owned");
-      b.onclick = () => {
-        if (!window.Cloud?.user){ toast("Zuerst anmelden (Menü) — der Kauf hängt an deinem Konto"); return; }
-        if (!VAULT_LINK){ toast("Shop öffnet in Kürze — Drop #001 kommt!"); return; }
-        window.open(VAULT_LINK + "?client_reference_id=" + Cloud.user.id, "_blank");
-        toast("Nach dem Kauf hier zurückkommen — schaltet automatisch frei");
-        Cloud.pollVault?.();
-      };
-    }
+    else { b.textContent = "Nicht erhältlich"; b.classList.add("owned"); b.onclick = null; }  // Spiel ist gratis (Claw 01.11.): keine Käufe
   }
   // ── SHOP (Store-App: App-Store-Käufe über window.NativeBridge) ──
   const Shop = (() => {
@@ -1241,7 +1229,7 @@ const UI = (() => {
     const prices = {};
     const CASH = { redline_cash_s: 25000, redline_cash_m: 90000, redline_cash_l: 250000 };
     async function load(){
-      if (!native) return;
+      if (!native || !NB.iapEnabled) return;  // Spiel ist gratis: Shop bleibt aus
       try { for (const p of await NB.products()) prices[p.id] = p.price; } catch(e){ console.warn("shop products", e); }
       await syncOwned(); renderShopBits();
       if ($("vault").classList.contains("on")) renderVault();
@@ -1266,7 +1254,7 @@ const UI = (() => {
       return got;
     }
     async function buy(id){
-      if (!native){ toast("Kauf nur in der App-Version"); return; }
+      if (!native || !NB.iapEnabled){ toast("Kauf nur in der App-Version"); return; }
       NB.haptic?.("light");
       const r = await NB.purchase(id);
       if (!r.ok){ if (!r.cancelled) toast(r.error || "Kauf fehlgeschlagen"); return; }

@@ -745,7 +745,6 @@
     <button class="mbtn primary radarbtn" data-go="radar">Strassen-Radar<small>Herausforderer suchen</small></button>
     <button class="mbtn" data-go="garage" id="menuGarage">Garage<small>Teile · Talente · Style · Sammlung</small></button>
     <button class="mbtn rivbtn" data-go="versus">⚔ Gegen Spieler<b class="rivon" id="rivOnline" style="display:none">0</b><small>Rivalen online · Duell Handy an Handy</small></button>
-    <button class="mbtn vault" data-go="vault">🔑 VAULT &amp; SHOP<small>Exklusive Legenden · Bolts-Pakete · Autos sofort freischalten</small></button>
   </div>
   <button id="cloudBtn"></button>
   <button id="cloudMail">oder per E-Mail-Code anmelden</button>
@@ -826,9 +825,7 @@
       <p>Schwarzer Widebody-Dämon mit violettem Feuer. Engste Schaltzone des Spiels (220 rpm),
       eigener Sound, exklusiv im Vault — kein Grind, kein Zufall, für immer deins.</p>
       <div class="resgrid" id="vaultStats" style="text-align:left"></div>
-      <button class="vaultbuy" id="vaultBuy" style="margin-top:14px">Kaufen — CHF 4.90</button>
-      <p class="mut vault-web-note" style="font-size:11.5px;margin-top:10px">Kauf über Stripe · dauerhaft mit deinem Konto verknüpft (Login nötig) ·
-      kein Pay-to-Win: gleiche Liga wie Top-Level-Autos, aber einmaliger Look &amp; Sound.</p>
+      <button class="vaultbuy" id="vaultBuy" style="margin-top:14px"></button>
     </div>
     <div id="shopPacks" style="display:none;width:100%;max-width:420px;text-align:left"></div>
   </div>
@@ -845,7 +842,6 @@
 
 <div id="toast"></div>
 
-<script>window.VAULT_LINK = "https://buy.stripe.com/5kQfZidi1fNdefBeus1kA02";</script>
 <script src="js/vendor/supabase.js?v=15"></script>
 <script src="js/vendor/qrcode.js?v=17"></script>
 <script src="js/i18n-en.js?v=9"></script>
@@ -861,7 +857,7 @@
 <script src="js/cloud.js?v=24"></script>
 <script src="js/duo.js?v=32"></script>
 <script src="js/rivals.js?v=12"></script>
-<script src="js/ui.js?v=41"></script>
+<script src="js/ui.js?v=42"></script>
 <script src="js/input.js?v=2"></script>
 <script>
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
