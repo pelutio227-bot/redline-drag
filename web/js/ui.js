@@ -160,14 +160,13 @@ const UI = (() => {
   const DRIVER = id => DRIVERS.find(d => d.id === id);
 
   // ── Screens ──
-  const SCREENS = ["menu","radar","garage","results","starter","vschall","duo","vault","rivals"];
+  const SCREENS = ["menu","radar","garage","results","starter","vschall","duo","rivals"];
   function show(id){
     SCREENS.forEach(s => { const el = $(s); if (el) el.classList.toggle("on", s === id); });
     $("hud").classList.remove("on");
     if (id !== "results") Race.clear?.();
     if (id === "menu") renderMenu();
     if (id === "garage") renderGarage();
-    if (id === "vault") renderVault();
     if (id === "starter") renderStarter();
     updateCash();
   }
@@ -1211,88 +1210,11 @@ const UI = (() => {
     if (e.code === "KeyN" || e.code === "ArrowDown"){ Race.nos(false); pNos.classList.remove("hot"); }
   });
 
-  // ── VAULT (früher Echtgeld-Exklusivauto; seit 01.11. gratis-Spiel ohne Käufe — gekaufte KURO bleiben) ──
-  async function renderVault(){
-    const owned = !!save.cars.kuro?.owned, def = CAR_DEFS.kuro;
-    const img = await carImage("kuro", owned ? save.cars.kuro.style : { hue:0, drop:12, rim:2, exhaust:2, spoiler:0, kit:0 }, true);
-    $("vaultCar").src = img.src;
-    $("vaultStats").innerHTML = `<div><b>${carPS(def)} PS</b><span>Leistung</span></div><div><b>${def.mass} kg</b><span>Gewicht</span></div>
-      <div><b>${def.zone} rpm</b><span>Schaltzone (Rekord)</span></div><div><b>Episch</b><span>startet auf LV 1</span></div>`;
-    const b = $("vaultBuy");
-    if (owned){ b.textContent = "IN DEINER GARAGE ✓ — fahren"; b.classList.add("owned"); b.onclick = () => { save.current = "kuro"; persist(); show("garage"); }; }
-    else { b.textContent = "Nicht erhältlich"; b.classList.add("owned"); b.onclick = null; }  // Spiel ist gratis (Claw 01.11.): keine Käufe
-  }
-  // ── SHOP (Store-App: App-Store-Käufe über window.NativeBridge) ──
-  const Shop = (() => {
-    const NB = window.NativeBridge;
-    const native = !!(NB && NB.isNative);
-    const prices = {};
-    const CASH = { redline_cash_s: 25000, redline_cash_m: 90000, redline_cash_l: 250000 };
-    async function load(){
-      if (!native || !NB.iapEnabled) return;  // Spiel ist gratis: Shop bleibt aus
-      try { for (const p of await NB.products()) prices[p.id] = p.price; } catch(e){ console.warn("shop products", e); }
-      await syncOwned(); renderShopBits();
-      if ($("vault").classList.contains("on")) renderVault();
-    }
-    function price(id){ return prices[id] || ""; }
-    function grantCar(k){
-      if (!CAR_DEFS[k]) return;
-      if (!save.cars[k]) save.cars[k] = defaultCarState(k);
-      if (save.cars[k].owned) return;
-      save.cars[k].owned = true; save.cars[k].iap = true; persist();
-    }
-    async function syncOwned(){
-      if (!native) return;
-      let ids = []; try { ids = await NB.owned(); } catch(e){ return; }
-      let got = 0;
-      for (const id of ids){
-        if (id === "redline_vault_kuro" && !save.cars.kuro?.owned){ grantCar("kuro"); got++; }
-        const m = /^redline_car_(\w+)$/.exec(id);
-        if (m && !save.cars[m[1]]?.owned){ grantCar(m[1]); got++; }
-      }
-      if (got){ toast(`🔑 ${got} Auto${got > 1 ? "s" : ""} wiederhergestellt`); if ($("garage").classList.contains("on")) renderGarage(); }
-      return got;
-    }
-    async function buy(id){
-      if (!native || !NB.iapEnabled){ toast("Kauf nur in der App-Version"); return; }
-      NB.haptic?.("light");
-      const r = await NB.purchase(id);
-      if (!r.ok){ if (!r.cancelled) toast(r.error || "Kauf fehlgeschlagen"); return; }
-      NB.haptic?.("heavy");
-      if (CASH[id]){ save.money += CASH[id]; persist(); updateCash(); AudioSys.loot(true); toast(`💵 +${fmt$(CASH[id])} gutgeschrieben`); return; }
-      if (id === "redline_vault_kuro"){ unlockVault("kuro"); AudioSys.loot(true); toast("🔑 KURO ØNI ist für immer deins"); return; }
-      const m = /^redline_car_(\w+)$/.exec(id);
-      if (m){ grantCar(m[1]); save.current = m[1]; persist(); AudioSys.loot(true); toast(`🏁 ${CAR_DEFS[m[1]].name} freigeschaltet`); renderGarage(); renderMenu(); }
-    }
-    async function buyCar(k){ return buy("redline_car_" + k); }
-    async function restore(){
-      if (!native) return;
-      const r = await NB.restore();
-      if (!r.ok){ toast(r.error || "Wiederherstellen fehlgeschlagen"); return; }
-      if (!(await syncOwned())) toast("Keine neuen Käufe gefunden");
-    }
-    function renderShopBits(){
-      const box = $("shopPacks"); if (!box) return;
-      const mb = document.querySelector(".mbtn.vault small");
-      const hasStore = native && Object.keys(prices).length > 0;
-      if (mb && native) mb.textContent = hasStore ? "Exklusive Legenden · Bolts-Pakete" : "Exklusive Legenden der Szene";
-      if (!hasStore){ box.style.display = "none"; return; }
-      box.style.display = "";
-      box.innerHTML = `<h3 style="margin:18px 0 8px">Bolts-Pakete</h3>
-        <p class="mut" style="font-size:12px;margin-bottom:10px">Spielgeld für Teile und Style. Level und Talente gibt's nur auf der Strasse.</p>
-        ${Object.entries(CASH).map(([id, amt]) => `<button class="buy can packbtn" data-id="${id}" style="width:100%;margin:6px 0;display:flex;justify-content:space-between;padding:14px 16px"><span>${fmt$(amt)}</span><b>${prices[id] || "…"}</b></button>`).join("")}
-        <button class="buy" id="shopRestore" style="width:100%;margin-top:10px;font-size:12px;opacity:.8">Käufe wiederherstellen</button>`;
-      box.querySelectorAll(".packbtn").forEach(b => b.onclick = () => buy(b.dataset.id));
-      box.querySelector("#shopRestore").onclick = restore;
-    }
-    return { native, load, price, buy, buyCar, restore, syncOwned, renderShopBits };
-  })();
-  window.Shop = Shop;
+  // Spiel ist gratis (Claw 01.11./05.11.): kein Vault, kein Shop, keine Käufe. Früher freigeschaltete Autos bleiben (Cloud-Entitlements).
   function unlockVault(key){
     if (!save.cars[key]) save.cars[key] = defaultCarState(key);
     save.cars[key].owned = true;
     persist();
-    if ($("vault").classList.contains("on")) renderVault();
   }
 
   // ── Duell-Ergebnis (beide Seiten rechnen dasselbe: Replay beider Läufe) ──
@@ -1388,22 +1310,16 @@ const UI = (() => {
     const duo = qs.get("duo") || qs.get("duel") || pm?.[1];
     if (duo){ window.DUEL_CODE = duo.toUpperCase().replace(/[^A-Z0-9]/g, ""); history.replaceState(null, "", "/"); }
     if (duo && !window.NativeBridge?.isNative && /iPhone|iPad|iPod/.test(navigator.userAgent) && duoStoreHint(window.DUEL_CODE)) return;
-    if (qs.get("vault") === "success"){
-      history.replaceState(null, "", location.pathname);
-      toast("✨ Danke! Dein VAULT-Auto wird freigeschaltet…");
-      setTimeout(() => window.Cloud?.pollVault?.(), 1500);
-    }
     if (await checkVSLink()) return;
     if (!save.current) show("starter");
     else if (window.DUEL_CODE){ const c = window.DUEL_CODE; window.DUEL_CODE = null; show("menu"); routeCode(c); }
     else { show("menu"); if (!hasName()) setTimeout(() => needName(), 600); }
   })();
 
-  setTimeout(() => { Shop.load(); }, 400);
   if (window.NativeBridge?.isNative){
     document.addEventListener("click", e => {
       const t = e.target.closest("button, .mbtn, .buy, .tab"); if (!t) return;
-      window.NativeBridge.haptic(t.matches(".mbtn.primary, .vaultbuy, .go") ? "medium" : "light");
+      window.NativeBridge.haptic(t.matches(".mbtn.primary, .go") ? "medium" : "light");
     }, true);
   }
   return { save, show, persist, toast, applyCloud, showDuoResults, applyWager, loseCar, needName, shareVS, unlockVault, raceEvent,

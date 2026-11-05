@@ -88,7 +88,7 @@ const Cloud = (() => {
     } catch(e){ console.warn("cloud load:", e.message); }
   }
 
-  // Gekaufte VAULT-Autos freischalten
+  // Früher freigeschaltete Autos (Entitlements) wiederherstellen — keine Käufe mehr
   async function loadEntitlements(){
     try {
       const { data } = await sb.from("entitlements").select("car_key").eq("user_id", user.id);
@@ -100,19 +100,6 @@ const Cloud = (() => {
       }
       if (got) UI.toast("🔑 VAULT-Auto freigeschaltet!");
     } catch(e){ console.warn("entitlements:", e.message); }
-  }
-
-  // Nach Stripe-Kauf: bis zu 2 Minuten auf die Freischaltung warten
-  let pollT = 0;
-  function pollVault(){
-    clearInterval(pollT);
-    let tries = 0;
-    pollT = setInterval(async () => {
-      if (++tries > 30 || !user){ clearInterval(pollT); return; }
-      const before = UI.save.cars.kuro?.owned;
-      await loadEntitlements();
-      if (!before && UI.save.cars.kuro?.owned) clearInterval(pollT);
-    }, 4000);
   }
 
   // Admin-Link im Menü für owner/admin/senior
@@ -303,7 +290,7 @@ const Cloud = (() => {
     }
   }
 
-  return { init, login, loginMail, logout, push, renderStatus, pollVault, showSheet,
+  return { init, login, loginMail, logout, push, renderStatus, showSheet,
     get sb(){ return sb; }, get user(){ return user; } };
 })();
 

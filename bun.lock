@@ -13,7 +13,6 @@
         "@capacitor/ios": "^8.5.0",
         "@capacitor/push-notifications": "^8",
         "@capacitor/status-bar": "^8.0.1",
-        "@revenuecat/purchases-capacitor": "^13.7.4",
       },
       "devDependencies": {
         "@capacitor/assets": "^3.0.5",
@@ -62,10 +61,6 @@
     "@isaacs/fs-minipass": ["@isaacs/fs-minipass@4.0.1", "", { "dependencies": { "minipass": "^7.0.4" } }, "sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w=="],
 
     "@prettier/plugin-xml": ["@prettier/plugin-xml@2.2.0", "", { "dependencies": { "@xml-tools/parser": "^1.0.11", "prettier": ">=2.4.0" } }, "sha512-UWRmygBsyj4bVXvDiqSccwT1kmsorcwQwaIy30yVh8T+Gspx4OlC0shX1y+ZuwXZvgnafmpRYKks0bAu9urJew=="],
-
-    "@revenuecat/purchases-capacitor": ["@revenuecat/purchases-capacitor@13.7.4", "", { "dependencies": { "@revenuecat/purchases-typescript-internal-esm": "19.12.0" }, "peerDependencies": { "@capacitor/core": ">=8.0.0" } }, "sha512-BIeHJv1YOCycBlYJ+8nAe4vzEYmqiQGxDIfamqQgojzm8XuWMuOt9jq7kK9ClnIfcUEz1YIh1Fy/Xb/03tUhMw=="],
-
-    "@revenuecat/purchases-typescript-internal-esm": ["@revenuecat/purchases-typescript-internal-esm@19.12.0", "", {}, "sha512-Hsuo4ACBK2CLRS59OiU8YxnO2IFqjgQ+7ZGIO8U4+VHQ3hWSmWWoHGcfTeMfL7jqUPLQoqLiQCZ1H30iQpzijQ=="],
 
     "@trapezedev/gradle-parse": ["@trapezedev/gradle-parse@7.1.10", "", {}, "sha512-muL6ptcxnqrgrYushL78pLF5GGJSWoo/kk8pb7mQ+Og8eef6zY6XI9iwhVS9bo8yCpuh6EZfq9odKWkGPVB4BQ=="],
 
