@@ -456,8 +456,8 @@
   .rv-cmp-r b.w{color:var(--grn)}
   .resrow{flex-wrap:wrap}
   .loot.hcl{border:1px solid rgba(255,45,64,.6)}
-  /* iPhone Duo (13.11.2026): Innendisplay 669 × 951 pt — knapp unter den alten Schwellen 700/1000, darum ab 640/900 grösser. */
-  @media (min-width:640px) and (min-height:900px) and (orientation:portrait){ #menu > :not(.cash){zoom:1.3} #menu{gap:8px} }
+  /* iPhone Duo (13.11.2026): Innendisplay 669 × 951 pt hochkant — das Menü füllt die Höhe schon bei Zoom 1, mehr Zoom schneidet unten ab. Darum bleiben die Schwellen 700/1000. */
+  @media (min-width:700px) and (min-height:1000px) and (orientation:portrait){ #menu > :not(.cash){zoom:1.3} #menu{gap:8px} }
   /* QUERFORMAT (Claw 30.10.): Menü zweispaltig — links Logo + Auto, rechts die Knöpfe, ohne Scrollen.
      Hochformat: .mleft/.mright sind «unsichtbar» (display:contents) → alles wie bisher. */
   .mleft,.mright{display:contents}
