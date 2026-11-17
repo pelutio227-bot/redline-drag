@@ -123,7 +123,9 @@ const UI = (() => {
   // XP aufs aktuelle Auto (inkl. Ausgeruht-Bonus) → gewonnene Level
   function giveXp(k, xp){
     const c = save.cars[k]; let bonus = 0;
-    if (c.lvl >= MAX_LVL) return { total: 0, bonus: 0, gained: [] };
+    if (c.lvl >= MAX_LVL) return { total: 0, bonus: 0, gained: [], boost: false };
+    const boost = !!window.Loot?.boostActive?.(save);        // Season 3: XP ×2 (Kiste, Pass, Shop)
+    if (boost) xp = Math.round(xp * 2);
     if (save.restLv > 0){
       const need = xpNeed(c.lvl);
       bonus = Math.min(xp, Math.round(save.restLv * need));
@@ -132,7 +134,7 @@ const UI = (() => {
     c.xp += xp + bonus; const gained = [];
     while (c.lvl < MAX_LVL && c.xp >= xpNeed(c.lvl)){ c.xp -= xpNeed(c.lvl); c.lvl++; gained.push(c.lvl); }
     if (c.lvl >= MAX_LVL) c.xp = 0;
-    return { total: xp + bonus, bonus, gained };
+    return { total: xp + bonus, bonus, gained, boost };
   }
 
   // ── Bausteine ──
@@ -160,7 +162,7 @@ const UI = (() => {
   const DRIVER = id => DRIVERS.find(d => d.id === id);
 
   // ── Screens ──
-  const SCREENS = ["menu","radar","garage","results","starter","vschall","duo","rivals"];
+  const SCREENS = ["menu","radar","garage","results","starter","vschall","duo","rivals","season"];
   function show(id){
     SCREENS.forEach(s => { const el = $(s); if (el) el.classList.toggle("on", s === id); });
     $("hud").classList.remove("on");
@@ -168,10 +170,12 @@ const UI = (() => {
     if (id === "menu") renderMenu();
     if (id === "garage") renderGarage();
     if (id === "starter") renderStarter();
+    if (id === "season") window.Season?.render?.();
     updateCash();
   }
   function updateCash(){
-    ["cash1","cash2","cash3","cash4","cash4b"].forEach(id => { const el = $(id); if (el) el.textContent = save.money.toLocaleString("de-CH"); });
+    ["cash1","cash2","cash3","cash4","cash4b","cash5"].forEach(id => { const el = $(id); if (el) el.textContent = save.money.toLocaleString("de-CH"); });
+    window.Season?.updateGems?.();
   }
   document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => {
     AudioSys.unlock();
@@ -262,6 +266,7 @@ const UI = (() => {
     $("heroPlate").innerHTML = `${lvBadge(c.lvl, rar)}<div class="hp-t"><b style="color:${RARITY[rar].col}">${d.name}</b>
       <span>${clsChip(k)} · ${RARITY[rar].n}${c.lvl >= MAX_LVL ? " · LEGENDE" : ""}</span></div>`;
     $("heroXp").innerHTML = xpBarHTML(c);
+    window.Season?.renderMenu?.();
     const free = talentPoints(c.lvl) - talentSpent(c.tal);
     const gb = $("menuGarage"); gb.querySelector(".badge-dot")?.remove();
     if (free > 0) gb.insertAdjacentHTML("beforeend", `<span class="badge-dot" title="Talentpunkte frei">${free}</span>`);
@@ -401,7 +406,7 @@ const UI = (() => {
   }
   function rollEncounter(){
     const c = cur(), fx = fxOf(save.current);
-    const enc = makeEncounter(c.lvl, Math.random, { luck: fx.luck || 0, pity: save.pity || 0, hunter: fx.hunter || 0 });
+    const enc = makeEncounter(c.lvl, Math.random, { luck: fx.luck || 0, pity: save.pity || 0, hunter: fx.hunter || 0, ...(window.Tut?.forceGrey?.() ? { rarity: "grey" } : {}) });
     save.pity = (enc.rar === "grey" || enc.rar === "green") ? (save.pity || 0) + 1 : 0;
     save.enc = { ...enc, tries: 0 };
     persist();
@@ -638,7 +643,7 @@ const UI = (() => {
     // Beute
     const L = [];
     if (res.win && opp.mode === "enc"){
-      L.push(`<div class="loot"><i>✦</i><div>+${gain.total} XP${gain.bonus ? ` <small>davon +${gain.bonus} ausgeruht</small>` : ""}</div></div>`);
+      L.push(`<div class="loot"><i>✦</i><div>+${gain.total} XP${gain.boost ? ` <small>⚡ XP ×2 aktiv</small>` : ""}${gain.bonus ? ` <small>davon +${gain.bonus} ausgeruht</small>` : ""}</div></div>`);
       if (rw.cash) L.push(`<div class="loot" style="animation-delay:.15s"><i>🔩</i><div style="color:var(--grn)">+${fmt$(rw.cash)}</div></div>`);
       else L.push(`<div class="loot" style="animation-delay:.15s"><i>·</i><div class="mut">Grau zahlt kein Preisgeld <small>ab Grün gibt's Bolts</small></div></div>`);
       if (spare) L.push(`<div class="loot" style="animation-delay:.3s"><i>🔧</i><div>Ersatzteile: +${fmt$(spare)} <small>${CAR_DEFS[enc.car].name} hast du schon</small></div></div>`);
@@ -649,6 +654,7 @@ const UI = (() => {
       if (t) L.push(`<div class="loot"><i>🔧</i><div>${t.u.n} Stufe ${t.st} — ${fmt$(t.cost)} <small>bringt ≈ −${Math.max(0.01, t.gain).toFixed(2)}s · in der Garage</small></div></div>`);
       if (save.enc) L.push(`<div class="loot r-${enc.rar}" style="border:1px solid var(--rc)"><i>↺</i><div>Eine Revanche gegen ${esc(d.name)} bleibt dir.</div></div>`);
     }
+    if (opp.mode === "enc" && window.Season?.resultRows) L.push(...window.Season.resultRows(enc, res));
     $("resLoot").innerHTML = L.join("");
     $("resTip").style.display = "none";
     if (carDrop) carImage(carDrop, save.cars[carDrop].style, true).then(im => { const x = $("dropImg"); if (x) x.src = im.src; });
@@ -1323,6 +1329,6 @@ const UI = (() => {
     }, true);
   }
   return { save, show, persist, toast, applyCloud, showDuoResults, applyWager, loseCar, needName, shareVS, unlockVault, raceEvent,
-    carImage: (k, st) => carImage(k, st), hideLevelUp, openRadar,
+    carImage: (k, st) => carImage(k, st), hideLevelUp, openRadar, giveXp, updateCash, cur, fmt$,
     currentExhaust: () => save.cars[save.current]?.style.exhaust ?? 0 };
 })();

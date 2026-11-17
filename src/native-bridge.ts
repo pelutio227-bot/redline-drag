@@ -6,10 +6,68 @@ import { StatusBar, Style } from "@capacitor/status-bar";
 import { Browser } from "@capacitor/browser";
 import { App as CapApp } from "@capacitor/app";
 import { PushNotifications } from "@capacitor/push-notifications";
+import { Purchases, LOG_LEVEL, type PurchasesStoreProduct } from "@revenuecat/purchases-capacitor";
 
 const isNative = Capacitor.isNativePlatform();
-/** Das Spiel ist gratis (Claw 01.11./05.11.2026): keine In-App-Käufe, kein RevenueCat, kein Shop, kein Vault. */
-const IAP_ENABLED = false;
+/** Season 3 (18.11.2026): Season Pass, XP ×2, Diamanten als In-App-Käufe über RevenueCat (App Store; Play folgt).
+ *  Das Spiel selbst bleibt gratis spielbar. RevenueCat-Projekt 9ee98494, App «Redline Drag iOS». */
+const IAP_ENABLED = true;
+const RC_KEY = Capacitor.getPlatform() === "ios" ? "appl_ZvNXrhYqzwYdKiHPLWRprvusnCK" : "";
+
+export interface ProductInfo { id: string; price: string; title: string }
+export interface PurchaseOutcome { ok: boolean; cancelled?: boolean; error?: string; owned: string[]; consumed?: string }
+
+let configured = false;
+async function ensure(): Promise<boolean> {
+  if (!isNative || !RC_KEY || !IAP_ENABLED) return false;
+  if (!configured) {
+    try {
+      await Purchases.setLogLevel({ level: LOG_LEVEL.WARN });
+      await Purchases.configure({ apiKey: RC_KEY });
+      configured = true;
+    } catch (e) { console.warn("[bridge] configure", e); return false; }
+  }
+  return true;
+}
+const productCache = new Map<string, PurchasesStoreProduct>();
+/** Produkte direkt per ID aus dem Store (kein Angebot nötig), mit lokalisiertem Preis («CHF 5.90»). */
+async function products(ids: string[]): Promise<ProductInfo[]> {
+  if (!(await ensure())) return [];
+  try {
+    const { products: list } = await Purchases.getProducts({ productIdentifiers: ids });
+    list.forEach((p) => productCache.set(p.identifier, p));
+    return list.map((p) => ({ id: p.identifier, price: p.priceString, title: p.title }));
+  } catch (e) { console.warn("[bridge] products", e); return []; }
+}
+function ownedFrom(info: { entitlements: { active: Record<string, unknown> }; allPurchasedProductIdentifiers?: string[]; nonSubscriptionTransactions?: { productIdentifier?: string; productId?: string }[] }): string[] {
+  const ids = [...Object.keys(info.entitlements.active ?? {}), ...(info.allPurchasedProductIdentifiers ?? []), ...(info.nonSubscriptionTransactions ?? []).map((t) => t.productIdentifier ?? t.productId ?? "")];
+  return Array.from(new Set(ids.filter(Boolean)));
+}
+/** Kauf (Produkt-ID wie im App Store). Verbrauchsgüter (XP ×2, Diamanten) melden `consumed`. */
+async function purchase(productId: string): Promise<PurchaseOutcome> {
+  if (!(await ensure())) return { ok: false, error: "Käufe gibt es nur in der App.", owned: [] };
+  let product = productCache.get(productId);
+  if (!product) { await products([productId]); product = productCache.get(productId); }
+  if (!product) return { ok: false, error: "Produkt im Store noch nicht verfügbar. Bitte später nochmals versuchen.", owned: [] };
+  try {
+    const { customerInfo, productIdentifier } = await Purchases.purchaseStoreProduct({ product });
+    return { ok: true, owned: ownedFrom(customerInfo), consumed: productIdentifier };
+  } catch (e) {
+    const err = e as { code?: string | number; message?: string; userCancelled?: boolean };
+    if (err?.userCancelled || String(err?.code) === "1" || /cancel/i.test(err?.message ?? "")) return { ok: false, cancelled: true, owned: [] };
+    return { ok: false, error: err?.message || "Kauf fehlgeschlagen", owned: [] };
+  }
+}
+/** Wiederherstellen (dauerhafte Käufe wie der Season Pass). */
+async function restore(): Promise<PurchaseOutcome> {
+  if (!(await ensure())) return { ok: false, error: "Nur in der App.", owned: [] };
+  try { const { customerInfo } = await Purchases.restorePurchases(); return { ok: true, owned: ownedFrom(customerInfo) }; }
+  catch (e) { return { ok: false, error: (e as Error)?.message || "Fehler", owned: [] }; }
+}
+async function owned(): Promise<string[]> {
+  if (!(await ensure())) return [];
+  try { const { customerInfo } = await Purchases.getCustomerInfo(); return ownedFrom(customerInfo); } catch { return []; }
+}
 
 /** Haptik: "light" | "medium" | "heavy" */
 async function haptic(kind: "light" | "medium" | "heavy" = "light"): Promise<void> {
@@ -53,7 +111,7 @@ if (isNative && Capacitor.getPlatform() === "ios") {
   });
 }
 
-const bridge = { pushRegister, isNative, iapEnabled: IAP_ENABLED, platform: Capacitor.getPlatform(), haptic, openUrl };
+const bridge = { pushRegister, isNative, iapEnabled: IAP_ENABLED, platform: Capacitor.getPlatform(), products, purchase, restore, owned, haptic, openUrl };
 (window as unknown as { NativeBridge: typeof bridge }).NativeBridge = bridge;
 
 if (isNative && Capacitor.getPlatform() === "ios") {
