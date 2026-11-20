@@ -251,5 +251,5 @@ window.Season = (() => {
   setTimeout(syncOwned, 2500);
   setInterval(() => { if ($("menu")?.classList.contains("on")) renderMenu(); }, 60000);   // Zähler (Tageskiste/Boost) aktuell halten
 
-  return { ensure, updateGems, resultRows, openCrateUI, renderMenu, render, claimDaily, buy, restore, grant, itemLabel, GEM };
+  return { ensure, updateGems, spend, resultRows, openCrateUI, renderMenu, render, claimDaily, buy, restore, grant, itemLabel, GEM };
 })();

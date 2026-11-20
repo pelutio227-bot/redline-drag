@@ -410,4 +410,9 @@ window.I18N_EN = {
   "Fahrwerk": "Suspension", "Sport": "Sport", "Serie": "Stock", "Auspuffanlage": "Exhaust system", "Racing Weiss": "Racing white",
   "Mesh Gold": "Mesh gold", "Turbofan": "Turbofan", "Duplex": "Twin", "Big Bore": "Big bore", "Sidepipe": "Side pipe", "Street": "Street",
   "Loot · {0}": "Loot · {0}",
+  // Season-3-Neustart + Auto mit Diamanten holen (20.11.2026)
+  "Season 3 · Neustart: alle Fahrer beginnen wieder bei null — viel Erfolg!": "Season 3 · fresh start: every driver begins at zero again — good luck!",
+  "Neue Autos gibt's als Beute: besiege": "New cars drop as loot: beat", "Oder hol dir ein Auto direkt mit Diamanten — Tippen zeigt den Preis. KURO ØNI gibt es nur über den Season Pass.": "Or get a car directly with diamonds — tap to see the price. KURO ØNI is only available through the Season Pass.",
+  "{0}: nur über den Season Pass (Premium, Stufe 30).": "{0}: only through the Season Pass (premium, tier 30).", "Direkt in deine Garage — im Serienzustand auf Level 1. Oder weiter sammeln: Gegner dieser Seltenheit fahren es als Beute.": "Straight into your garage — stock, at level 1. Or keep collecting: opponents of this rarity drive it as loot.",
+  "Diamanten": "Diamonds", "du hast {0}": "you have {0}", "Für {0} Diamanten holen": "Get it for {0} diamonds", "Noch {0} Diamanten — Diamanten holen": "{0} more diamonds needed — get diamonds", "{0} gehört dir!": "{0} is yours!", "Nicht genug Diamanten ({0}/{1})": "Not enough diamonds ({0}/{1})",
 };

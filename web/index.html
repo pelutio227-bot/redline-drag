@@ -20,7 +20,8 @@
     --bg:#0A0A0E; --panel:#14141C; --panel2:#1C1C26; --line:rgba(255,255,255,.08);
     --txt:#F2F3F7; --mut:#8E92A3; --red:#FF2D40; --red2:#FF5A68; --grn:#2BE05E; --amb:#FFB020;
   }
-  html.native-app #cloudBtn, html.native-app #cloudMail, html.native-app #adminLink, html.native-app .vault-web-note{display:none !important}
+  /* Store-App: Anmelden (Apple/Google/E-Mail) ist seit 20.11.2026 auch in der App sichtbar (vorher versteckt → «wo ist der Anmelde-Knopf?»). Nur Admin-Link und Web-Hinweise bleiben weg. */
+  html.native-app #adminLink, html.native-app .vault-web-note{display:none !important}
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
   html,body{height:100%;overflow:hidden;overscroll-behavior:none}
   body{background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;touch-action:manipulation}
@@ -679,6 +680,14 @@
   .cc small{display:block;font-size:10px;color:var(--mut);font-weight:700}
   .cc.cur{box-shadow:0 0 0 2px var(--red),0 0 18px rgba(255,45,64,.4)}
   .cc .lvb{position:absolute;top:6px;left:6px}
+  /* Auto mit Diamanten holen (Sammlung, 20.11.2026) */
+  .cc small .gemi{width:11px;height:11px;vertical-align:-2px;filter:none}
+  .cc.no.buy{border-style:dashed}
+  .rv-pop-in.cb .cc-img{max-width:240px;margin-top:2px}
+  .rv-pop-in.cb .rv-pop-t{margin-bottom:0}
+  .cb-price{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-size:24px;font-weight:900;font-variant-numeric:tabular-nums}
+  .cb-price .gemi{width:26px;height:26px}
+  .cb-price small{display:block;font-size:11px;color:var(--mut);font-weight:700;text-align:left;line-height:1.1}
   .collh{display:flex;align-items:center;gap:8px;margin:16px 0 8px;font-size:11px;font-weight:900;letter-spacing:.24em;text-transform:uppercase;color:var(--rc)}
   .collh::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--rc) 40%,transparent)}
   /* Starter: Partner-Wahl */
@@ -950,22 +959,22 @@
 
 <script src="js/vendor/supabase.js?v=15"></script>
 <script src="js/vendor/qrcode.js?v=17"></script>
-<script src="js/i18n-en.js?v=12"></script>
+<script src="js/i18n-en.js?v=13"></script>
 <script src="js/i18n.js?v=2"></script>
 <script src="assets/cars/meta.js?v=28"></script>
 <script src="assets/cars/kitmeta.js?v=24"></script>
 <script src="js/cars.js?v=30"></script>
 <script src="js/audio.js?v=32"></script>
 <script src="js/rpg.js?v=3"></script>
-<script src="js/loot.js?v=2"></script>
+<script src="js/loot.js?v=3"></script>
 <script src="js/sim.js?v=28"></script>
 <script src="js/perf.js?v=4"></script>
 <script src="js/game.js?v=35"></script>
-<script src="js/cloud.js?v=26"></script>
+<script src="js/cloud.js?v=27"></script>
 <script src="js/duo.js?v=32"></script>
 <script src="js/rivals.js?v=12"></script>
-<script src="js/ui.js?v=44"></script>
-<script src="js/season.js?v=2"></script>
+<script src="js/ui.js?v=45"></script>
+<script src="js/season.js?v=3"></script>
 <script src="js/tutorial.js?v=1"></script>
 <script src="js/input.js?v=2"></script>
 <script>

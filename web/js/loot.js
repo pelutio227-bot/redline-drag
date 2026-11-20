@@ -116,6 +116,12 @@ function buyTier(s){ const st = passState(s); if (st.done) return false; s.pass.
 
 // ── Preise in Diamanten + In-App-Produkte ────────────────────────────────────
 const GEM_PRICES = { xp2_24h: 80, boss_crate: 150, tier: 60, dodge: 4 };
+// Auto direkt mit Diamanten holen (Claw 20.11.2026): Sammeln ist der lange Weg (Beute von seltenen+ Gegnern), Kaufen der
+// kurze. Preis nach Seltenheit des Autos; KURO ØNI (Vault, Pass-Belohnung Stufe 30) ist nicht kaufbar.
+// Richtwert: ~1'000 💎 pro Saison als Vielspieler (Sim) → ein episches Auto gratis, Legende = Pakete 1200 + 550.
+const CAR_GEM_PRICE = { grey: 90, green: 180, blue: 400, epic: 900, legend: 1800 };
+const carGemPrice = k => (typeof CAR_DEFS !== "undefined" && CAR_DEFS[k]?.vault) ? null
+  : (CAR_GEM_PRICE[typeof carRarity === "function" ? carRarity(k) : "grey"] ?? null);
 const PRODUCTS = {
   pass:  { id: SEASON.pass,           n: "Season Pass",      what: "Premium-Spur mit 30 Stufen, Tuner-Tageskiste, KURO ØNI auf Stufe 30" },
   xp2:   { id: "redline_xp2_24h",      n: "XP ×2 für 24 h",   what: "Doppelte Erfahrung für jedes Rennen, 24 Stunden lang" },
@@ -129,5 +135,5 @@ if (typeof globalThis !== "undefined") globalThis.Loot = {
   SEASON, seasonEnd, seasonLeftMs, seasonEnded, crateOdds, CRATES, CRATE_BY_RAR, rollDrops, openCrate,
   boostActive, boostLeftMs, addBoost, DAILY_MS, dailyReady, dailyLeftMs, dailyCrate,
   tierNeed, passTotal, passReward, passState, addPassPoints, claimable, claim, buyTier,
-  GEM_PRICES, PRODUCTS, productByItem,
+  GEM_PRICES, CAR_GEM_PRICE, carGemPrice, PRODUCTS, productByItem,
 };

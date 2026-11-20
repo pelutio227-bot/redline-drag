@@ -5,6 +5,9 @@
 
 const UI = (() => {
   const SAVE_KEY = "redline:save:v2";             // Key bleibt; Inhalt ab Season 2 = v 3
+  // Globaler Neustart (Claw 20.11.2026, Season 3): JEDER Spielstand ohne diese Epoche — lokal oder aus der Cloud — startet
+  // einmalig bei null, nur der Name bleibt. Nächster Neustart = neuen Wert setzen. cloud.js: alte Epoche verliert immer.
+  const EPOCH = "s3-2026-11-20";
   const $ = id => document.getElementById(id);
   const fmt$ = n => "🔩 " + Math.round(n).toLocaleString("de-CH");   // Spielwährung «Bolts» (30.10.)
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
@@ -61,18 +64,17 @@ const UI = (() => {
     s.v = 3; s.pity = 0; s.restLv = 0.5; s.enc = null;
     s.stats = s.stats ?? ({ wins:0, races:0, rar:{} }); s.seen = s.seen ?? ({});
   }
-  // Season-2-Neustart (29.10.2026, Wunsch Owner): ALLE Spielstände starten einmalig bei null.
-  // Bleibt: Name + bezahlte Autos (Vault/In-App, auf LV 1). Cloud: frischer Stand (s2fresh) gewinnt immer.
+  // Neustart (Season 2 am 29.10.2026, Season 3 am 20.11.2026 — Wunsch Owner): ALLE Spielstände starten einmalig bei null.
+  // Bleibt: nur der Name (seit Season 3 auch keine Vault-/Shop-Autos mehr — KURO ØNI kommt über den Season Pass).
   function freshStart(old){
     const s = blankSave();
     s.name = old?.name ?? "RACER";
     if (old?.adminAt) s.adminAt = old.adminAt;
-    CAR_KEYS.forEach(k => { const c = old?.cars?.[k];
-      if (c?.owned && (c.iap || CAR_DEFS[k].vault)){ s.cars[k].owned = true; s.cars[k].iap = !!c.iap; } });
+    if (old?.cars) s.restart = EPOCH;          // es gab einen Stand → einmal den Neustart-Hinweis zeigen
     return s;
   }
   function fixup(s){
-    if (!s.s2fresh){ const f = freshStart(s); Object.keys(s).forEach(k => delete s[k]); Object.assign(s, f); }
+    if (!s.s2fresh || s.epoch !== EPOCH){ const f = freshStart(s); Object.keys(s).forEach(k => delete s[k]); Object.assign(s, f); }
     CAR_KEYS.forEach(k => { if (!s.cars[k]) s.cars[k] = defaultCarState(k); });
     if (s.current && !s.cars[s.current]?.owned) s.current = CAR_KEYS.find(k => s.cars[k].owned) ?? null;
     migrateStyle(s); migrateV3(s);
@@ -96,7 +98,7 @@ const UI = (() => {
   function blankSave(){
     const cars = {};
     CAR_KEYS.forEach(k => cars[k] = defaultCarState(k));
-    return { v: 3, s2fresh: 1, money: 600, current: null, name: "RACER", cars, pity: 0, restLv: 0, enc: null,
+    return { v: 3, s2fresh: 1, epoch: EPOCH, money: 600, current: null, name: "RACER", cars, pity: 0, restLv: 0, enc: null,
              stats: { wins:0, races:0, rar:{} }, seen: {}, styleV: 1, lastSeen: Date.now() };
   }
   const save = load();
@@ -168,6 +170,7 @@ const UI = (() => {
     $("hud").classList.remove("on");
     if (id !== "results") Race.clear?.();
     if (id === "menu") renderMenu();
+    if (save.restart && (id === "menu" || id === "starter")){ delete save.restart; persist(); setTimeout(() => toast("Season 3 · Neustart: alle Fahrer beginnen wieder bei null — viel Erfolg!"), 900); }
     if (id === "garage") renderGarage();
     if (id === "starter") renderStarter();
     if (id === "season") window.Season?.render?.();
@@ -1103,7 +1106,7 @@ const UI = (() => {
   function tabCars(el){
     el.appendChild(ownersCard(save.current));
     const total = CAR_KEYS.filter(k => !CAR_DEFS[k].vault).length, have = CAR_KEYS.filter(k => save.cars[k].owned && !CAR_DEFS[k].vault).length;
-    el.appendChild(div("card", `<h3>Sammlung · ${have} / ${total}</h3><p class="mut" style="font-size:12px">Neue Autos gibt's nur als Beute: besiege <b style="color:var(--r-blue)">seltene</b>, <b style="color:var(--r-epic)">epische</b> oder <b style="color:var(--r-legend)">legendäre</b> Gegner und ihr Auto gehört dir — im Serienzustand auf Level 1.</p>`));
+    el.appendChild(div("card", `<h3>Sammlung · ${have} / ${total}</h3><p class="mut" style="font-size:12px">Neue Autos gibt's als Beute: besiege <b style="color:var(--r-blue)">seltene</b>, <b style="color:var(--r-epic)">epische</b> oder <b style="color:var(--r-legend)">legendäre</b> Gegner und ihr Auto gehört dir — im Serienzustand auf Level 1.</p><p class="mut" style="font-size:12px;margin-top:6px">Oder hol dir ein Auto direkt mit Diamanten — Tippen zeigt den Preis. KURO ØNI gibt es nur über den Season Pass.</p>`));
     for (const rar of [...RARITIES].reverse()){
       const ks = CAR_KEYS.filter(k => carRarity(k) === rar && (!CAR_DEFS[k].vault || save.cars[k].owned));
       if (!ks.length) continue;
@@ -1111,18 +1114,49 @@ const UI = (() => {
       const grid = div("coll", "");
       ks.sort((a, b) => (save.cars[b].owned - save.cars[a].owned) || (save.cars[b].lvl - save.cars[a].lvl));
       ks.forEach(k => {
-        const c = save.cars[k], d = CAR_DEFS[k];
-        const cc = div(`cc r-${rar}${c.owned ? "" : " no"}${save.current === k ? " cur" : ""}`,
-          `${c.owned ? lvBadge(c.lvl, rar, true) : ""}<img alt=""><b>${d.name}</b><small>${c.owned ? (save.current === k ? "AKTIV" : CLASSES[carClass(k)].name + " · wählen") : "Beute · " + CLASSES[carClass(k)].name}</small>`);
+        const c = save.cars[k], d = CAR_DEFS[k], gp = c.owned ? null : window.Loot?.carGemPrice?.(k);
+        const cc = div(`cc r-${rar}${c.owned ? "" : " no"}${gp ? " buy" : ""}${save.current === k ? " cur" : ""}`,
+          `${c.owned ? lvBadge(c.lvl, rar, true) : ""}<img alt=""><b>${d.name}</b><small>${c.owned ? (save.current === k ? "AKTIV" : CLASSES[carClass(k)].name + " · wählen") : gp ? `${window.Season?.GEM ?? "💎"} ${gp.toLocaleString("de-CH")} · ${CLASSES[carClass(k)].name}` : "Beute · " + CLASSES[carClass(k)].name}</small>`);
         carImage(k, c.owned ? c.style : defaultCarState(k).style).then(im => { const x = cc.querySelector("img"); if (x) x.src = im.src; });
         cc.onclick = () => {
-          if (!c.owned) return toast(`${d.name}: wird von ${RARITY[rar].n.toLowerCase()}en Gegnern gefahren — besiege sie!`);
+          if (!c.owned) return openCarBuy(k);
           save.current = k; save.enc = null; persist(); renderGarage();
         };
         grid.appendChild(cc);
       });
       el.appendChild(grid);
     }
+  }
+  // Auto mit Diamanten holen (Claw 20.11.2026): Sammeln ist der lange Weg (Beute), Kaufen der kurze — Preis nach Seltenheit
+  // (loot.js carGemPrice). Diamanten kommen aus Kisten/Pass (gratis) oder aus dem Shop (App). Das Auto kommt im Serienzustand
+  // auf LV 1, wird aktiv und steht als «geholt» in der Chronik. KURO ØNI (Vault) ist nur über den Season Pass zu haben.
+  function openCarBuy(k){
+    const d = CAR_DEFS[k], rar = carRarity(k), price = window.Loot?.carGemPrice?.(k);
+    if (!price) return toast(`${d.name}: nur über den Season Pass (Premium, Stufe 30).`);
+    const s = window.Season?.ensure?.() ?? save, gems = s.gems || 0, ok = gems >= price, n = x => Math.round(x).toLocaleString("de-CH");
+    $("carBuy")?.remove();
+    const w = document.createElement("div"); w.className = "rv-pop"; w.id = "carBuy";
+    w.innerHTML = `<div class="rv-pop-in cb r-${rar}"><img class="cc-img" alt=""><b class="rv-pop-t" style="color:${RARITY[rar].col}">${esc(d.name)}</b>
+      <p><span style="color:${RARITY[rar].col};font-weight:800">${RARITY[rar].n}</span> · ${CLASSES[carClass(k)].name}<br><span class="mut">${esc(d.desc)}</span></p>
+      <p>Direkt in deine Garage — im Serienzustand auf Level 1. Oder weiter sammeln: Gegner dieser Seltenheit fahren es als Beute.</p>
+      <div class="cb-price">${window.Season?.GEM ?? "💎"} <b>${n(price)}</b><small>Diamanten<br>du hast ${n(gems)}</small></div>
+      <div class="rv-pop-btns">${ok
+        ? `<button class="mbtn primary" data-a="buy">Für ${n(price)} Diamanten holen</button>`
+        : `<button class="mbtn primary" data-a="shop">Noch ${n(price - gems)} Diamanten — Diamanten holen</button>`}
+        <button class="mbtn" data-a="x">Abbrechen</button></div></div>`;
+    carImage(k, defaultCarState(k).style).then(im => { const x = w.querySelector("img"); if (x) x.src = im.src; });
+    w.onclick = e => {
+      const a = e.target.closest("[data-a]")?.dataset.a; if (!a && e.target !== w) return;
+      if (a === "buy"){
+        if (save.cars[k]?.owned || !window.Season?.spend?.(price)) return;
+        save.cars[k] = { ...defaultCarState(k), owned: true, got: Date.now(), bought: price };
+        save.current = k; save.enc = null; persist(); AudioSys.loot?.(); window.NativeBridge?.haptic?.("heavy");
+        toast(`${d.name} gehört dir!`); w.remove(); renderGarage(); return;
+      }
+      if (a === "shop"){ w.remove(); show("season"); return; }
+      w.remove();
+    };
+    document.body.appendChild(w);
   }
   $("gRace").addEventListener("click", openRadar);
 
@@ -1328,7 +1362,7 @@ const UI = (() => {
       window.NativeBridge.haptic(t.matches(".mbtn.primary, .go") ? "medium" : "light");
     }, true);
   }
-  return { save, show, persist, toast, applyCloud, showDuoResults, applyWager, loseCar, needName, shareVS, unlockVault, raceEvent,
+  return { save, EPOCH, show, persist, toast, applyCloud, showDuoResults, applyWager, loseCar, needName, shareVS, unlockVault, raceEvent,
     carImage: (k, st) => carImage(k, st), hideLevelUp, openRadar, giveXp, updateCash, cur, fmt$,
     currentExhaust: () => save.cars[save.current]?.style.exhaust ?? 0 };
 })();

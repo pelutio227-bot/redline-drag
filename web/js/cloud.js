@@ -10,10 +10,11 @@ const Cloud = (() => {
     : null;
   let user = null, pushT = 0;
 
-  // Fortschritt: Season 2 (v3) schlägt alte Stände; dann Summe aller Auto-Level/XP, dann Cash
+  // Fortschritt: aktueller Neustart (UI.EPOCH, Season 3 ab 20.11.2026) schlägt jeden alten Stand; dann Summe aller
+  // Auto-Level/XP, dann Cash. Ein Cloud-Stand aus einer früheren Epoche verliert immer → wird vom frischen lokalen überschrieben.
   const score = s => {
     if (!s) return 0;
-    if (!s.s2fresh) return (s.level ?? 0)*1e6 + (s.xp ?? 0);              // alter Stand (vor Neustart) verliert immer
+    if (!s.s2fresh || (window.UI?.EPOCH && s.epoch !== window.UI.EPOCH)) return (s.level ?? 0)*1e6 + (s.xp ?? 0);   // alter Stand verliert immer
     const prog = Object.values(s.cars || {}).reduce((a, c) => a + (c?.owned ? (c.lvl ?? 1)*1e5 + (c.xp ?? 0) : 0), 0);
     return 1e13 + prog*1e3 + Math.min(9.9e8, s.money ?? 0)/1000;
   };
@@ -57,11 +58,15 @@ const Cloud = (() => {
         // Admin hat den Fortschritt zurückgesetzt → lokal komplett neu starten.
         // Flag ZUERST in der Cloud löschen — sonst greift es beim nächsten
         // Login wieder und die Seite reloaded endlos (Bug v19).
-        localStorage.removeItem("redline:save:v2");
+        // Season-3-Neustart (20.11.2026): ist der lokale Stand schon aus der aktuellen Epoche (ui.js hat ihn beim Laden
+        // frisch gesetzt, evtl. mit ersten Rennen), bleibt er — nur die Cloud-Flagge weg und hochladen, kein Reload.
+        const keepLocal = !!UI.EPOCH && UI.save?.epoch === UI.EPOCH;
+        if (!keepLocal) localStorage.removeItem("redline:save:v2");
         await sb.from("saves").update({
           data: { resetDoneAt: Date.now() },
           updated_at: new Date().toISOString(),
         }).eq("user_id", u.id);
+        if (keepLocal){ push(); UI.toast("☁️ Fortschritt wird ab jetzt gespeichert"); loadEntitlements(); showAdminLink(); return; }
         UI.toast("♻️ Fortschritt wurde vom Admin zurückgesetzt");
         // Reload-Bremse: max. 1 automatischer Reload pro Tab, falls das
         // Update oben scheitert (offline/RLS) — nie wieder Endlos-Schleife.
