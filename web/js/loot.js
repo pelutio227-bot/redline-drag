@@ -10,6 +10,16 @@
 const SEASON = { id: "s3", n: "Season 3 · Beute", start: Date.UTC(2026, 10, 18), days: 35, tiers: 30, pass: "redline_pass_s3" };
 const seasonEnd = () => SEASON.start + SEASON.days * 864e5;
 const seasonLeftMs = (now = Date.now()) => Math.max(0, seasonEnd() - now);
+const seasonEnded = (now = Date.now()) => now >= seasonEnd();   // nach dem Ende: Pass nicht mehr verkaufen, Belohnungen bleiben abholbar
+// Was steckt in einer Kiste? (Apple 3.1.1: Wahrscheinlichkeiten offenlegen, wenn Kisten mit gekaufter Währung gekauft werden)
+const crateOdds = key => {
+  const C = CRATES[key] || CRATES.street, [a, b] = C.gems, out = ["Bolts sicher"];
+  if (a === b && a > 0) out.push(`${a} Diamant${a > 1 ? "en" : ""} sicher`);
+  else if (a > 0) out.push(`${a}–${b} Diamanten sicher`);
+  else if (b > 0) out.push(`1 Diamant ${Math.round(100 * b / (b + 1))} %`);
+  out.push(`XP ×2 ${Math.round(C.xp2 * 100)} %`, `Ausgeruht ${Math.round(C.rest * 100)} %`);
+  return out;
+};
 
 // ── Kisten ────────────────────────────────────────────────────────────────────
 // bolts = Vielfaches von rarCash(Level) (Grün-Preisgeld), gems = Spanne, xp2/rest = Chance, xp2Min = Boost-Dauer
@@ -81,7 +91,7 @@ function passState(s, now = Date.now()){
   const p = s.pass; let pts = p.pts, tier = 0;
   while (tier < SEASON.tiers && pts >= tierNeed(tier + 1)){ pts -= tierNeed(tier + 1); tier++; }
   const need = tier >= SEASON.tiers ? 0 : tierNeed(tier + 1);
-  return { pts: p.pts, tier, into: pts, need, pct: need ? pts / need : 1, prem: !!p.prem, left: seasonLeftMs(now), done: tier >= SEASON.tiers };
+  return { pts: p.pts, tier, into: pts, need, pct: need ? pts / need : 1, prem: !!p.prem, left: seasonLeftMs(now), ended: seasonEnded(now), done: tier >= SEASON.tiers };
 }
 function addPassPoints(s, n){ passState(s); s.pass.pts += n; return passState(s); }
 // Welche Stufen sind abholbar? → [{ tier, prem }]
@@ -116,7 +126,7 @@ const PRODUCTS = {
 const productByItem = id => Object.values(PRODUCTS).find(p => p.id === id);
 
 if (typeof globalThis !== "undefined") globalThis.Loot = {
-  SEASON, seasonEnd, seasonLeftMs, CRATES, CRATE_BY_RAR, rollDrops, openCrate,
+  SEASON, seasonEnd, seasonLeftMs, seasonEnded, crateOdds, CRATES, CRATE_BY_RAR, rollDrops, openCrate,
   boostActive, boostLeftMs, addBoost, DAILY_MS, dailyReady, dailyLeftMs, dailyCrate,
   tierNeed, passTotal, passReward, passState, addPassPoints, claimable, claim, buyTier,
   GEM_PRICES, PRODUCTS, productByItem,

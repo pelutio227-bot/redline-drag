@@ -14,7 +14,7 @@ window.Season = (() => {
   const haptic = k => window.NativeBridge?.haptic?.(k);
   const fire = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));
 
-  function ensure(){ const s = S(); s.gems = s.gems ?? 0; s.crates = s.crates ?? []; L().passState(s); return s; }
+  function ensure(){ const s = S(); s.gems = s.gems ?? 0; s.crates = s.crates ?? []; s.iapTx = s.iapTx ?? []; L().passState(s); return s; }
   function updateGems(){ const s = ensure(); document.querySelectorAll(".gems b").forEach(el => el.textContent = fmtN(s.gems)); }
 
   // ── Gegenstände ──
@@ -135,10 +135,11 @@ window.Season = (() => {
   let prices = null;
   async function loadPrices(){
     if (prices || !native()) return prices || {};
-    try { const list = await window.NativeBridge.products(Object.values(L().PRODUCTS).map(p => p.id)); prices = {}; list.forEach(p => prices[p.id] = p.price); } catch { prices = {}; }
+    try { const list = await window.NativeBridge.products(Object.values(L().PRODUCTS).map(p => p.id)); if (!list.length) return {}; prices = {}; list.forEach(p => prices[p.id] = p.price); } catch { return {}; }
     return prices;
   }
   const priceOf = id => prices?.[id] || null;
+  const endDate = () => new Date(L().seasonEnd()).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit", year: "numeric" });
   async function render(){
     const s = ensure(), body = $("seasonBody"), ps = L().passState(s), P = L().PRODUCTS, G = L().GEM_PRICES;
     const tiers = Array.from({ length: L().SEASON.tiers }, (_, i) => i + 1);
@@ -160,20 +161,21 @@ window.Season = (() => {
         <div class="ptrack" id="ptrack">${tiers.map(t => `<div class="pt${t <= ps.tier ? " reached" : ""}${t === ps.tier + 1 ? " next" : ""}">${cell(t, false)}<i class="pnum">${t}</i>${cell(t, true)}</div>`).join("")}</div>
       </div>
       ${ps.prem ? `<div class="ps-prem on">★ Premium aktiv — alle Premium-Belohnungen dieser Season gehören dir.</div>`
-        : `<button class="mbtn primary ps-buy" data-buy="${P.pass.id}">SEASON PASS HOLEN<small>${priceOf(P.pass.id) ? priceOf(P.pass.id) + " · einmalig für diese Season" : native() ? "Preis wird geladen …" : "Nur in der App (App Store / Google Play)"}</small></button>
+        : ps.ended ? `<div class="ps-prem">Diese Season ist beendet — erreichte Belohnungen kannst du weiterhin abholen. Die nächste Season startet bald.</div>`
+        : `<button class="mbtn primary ps-buy" data-buy="${P.pass.id}">SEASON PASS HOLEN<small>${priceOf(P.pass.id) ? priceOf(P.pass.id) + " · einmalig, gilt bis " + endDate() : native() ? "Preis wird geladen …" : "Kauf in der iPhone-App · gilt bis " + endDate()}</small></button>
            <ul class="ps-perks"><li>Premium-Spur mit 30 Belohnungen: Diamanten, Bolts, Boss- und Elite-Kisten, XP ×2</li><li>Stufe 30: <b>KURO ØNI</b> — das Season-Auto</li><li>Tageskiste wird zur Tuner-Kiste</li><li>Bereits erreichte Stufen zählen rückwirkend</li></ul>`}
       <h3 class="ps-h">Shop</h3>
       <div class="shop">
         <button class="shopc" data-gem="xp2"><i>⚡</i><b>XP ×2 für 24 h</b><small>Doppelte Erfahrung in jedem Rennen</small><em>${GEM} ${G.xp2_24h}</em></button>
-        <button class="shopc" data-gem="boss"><i>🎁</i><b>Boss-Kiste</b><small>Bolts, Diamanten, Chance auf XP ×2</small><em>${GEM} ${G.boss_crate}</em></button>
+        <button class="shopc" data-gem="boss"><i>🎁</i><b>Boss-Kiste</b><small>${L().crateOdds("boss").join(" · ")}</small><em>${GEM} ${G.boss_crate}</em></button>
         ${ps.done ? "" : `<button class="shopc" data-gem="tier"><i>🏁</i><b>Pass-Stufe kaufen</b><small>Sofort zur nächsten Stufe</small><em>${GEM} ${G.tier}</em></button>`}
-        <button class="shopc iap" data-buy="${P.xp2.id}"><i>⚡</i><b>XP ×2 für 24 h</b><small>Direkt kaufen</small><em>${priceOf(P.xp2.id) || (native() ? "…" : "Nur in der App")}</em></button>
-        ${["g100", "g550", "g1200"].map(k => `<button class="shopc iap gemc" data-buy="${P[k].id}">${GEM}<b>${P[k].n}</b><small>${P[k].tag || "Premium-Währung"}</small><em>${priceOf(P[k].id) || (native() ? "…" : "Nur in der App")}</em></button>`).join("")}
+        <button class="shopc iap" data-buy="${P.xp2.id}"><i>⚡</i><b>XP ×2 für 24 h</b><small>${native() ? "Direkt kaufen" : "Kauf in der iPhone-App"}</small><em>${priceOf(P.xp2.id) || (native() ? "…" : "App")}</em></button>
+        ${["g100", "g550", "g1200"].map(k => `<button class="shopc iap gemc" data-buy="${P[k].id}">${GEM}<b>${P[k].n}</b><small>${native() ? (P[k].tag || "Premium-Währung") : "Kauf in der iPhone-App"}</small><em>${priceOf(P[k].id) || (native() ? "…" : "App")}</em></button>`).join("")}
       </div>
       <div class="ps-foot">
         <button class="ps-link" id="restoreBtn">Käufe wiederherstellen</button>
         <button class="ps-link" id="tutBtn">Tutorial erneut zeigen</button>
-        <p class="mut">Diamanten und Pass gehören zu deinem Spielstand (Cloud-Login sichert ihn). Der Season Pass gilt nur für diese Season. Kein Echtgeld-Gewinn, keine Zufallskäufe: Kisten fallen nach Leistung.</p>
+        <p class="mut">${native() ? "" : "Käufe gibt es in der iPhone-App (App Store); Pass und Diamanten gelten danach überall, auch hier. "}Diamanten und Pass gehören zu deinem Spielstand (Cloud-Login sichert ihn). Der Season Pass gilt nur für diese Season (bis ${endDate()}). Kein Echtgeld-Gewinn, keine Zufallskäufe: Kisten fallen nach Leistung.</p>
       </div>`;
     body.querySelectorAll("[data-claim]").forEach(b => b.onclick = () => { const [t, p] = b.dataset.claim.split(":"); doClaim(+t, p === "1", b); });
     body.querySelectorAll("[data-buy]").forEach(b => b.onclick = () => buy(b.dataset.buy));
@@ -182,7 +184,7 @@ window.Season = (() => {
     $("tutBtn").onclick = () => { window.Tut?.restart?.(); };
     const tr = $("ptrack"), nx = tr.querySelector(".pt.next") || tr.lastElementChild; if (nx) tr.scrollLeft = Math.max(0, nx.offsetLeft - tr.clientWidth / 2 + nx.offsetWidth / 2);
     updateGems();
-    if (native() && !prices){ await loadPrices(); if ($("season").classList.contains("on")) render(); }
+    if (native() && !prices){ await loadPrices(); if (prices && $("season").classList.contains("on")) render(); }
   }
   function doClaim(t, prem, btn){
     const s = ensure(), rw = L().claim(s, t, prem); if (!rw) return;
@@ -203,21 +205,23 @@ window.Season = (() => {
   // ── In-App-Kauf über die Bridge (RevenueCat → App Store / Play) ──
   let buying = false;
   async function buy(pid){
-    if (!native()) return UI.toast("Käufe gibt es nur in der App (App Store / Google Play).");
+    if (!native()) return UI.toast("Kauf in der iPhone-App — dein Fortschritt (Pass, Diamanten) gilt überall, auch hier im Browser.");
     if (buying) return; buying = true;
     try {
       const r = await window.NativeBridge.purchase(pid);
       if (r.cancelled) return;
       if (!r.ok) return UI.toast(r.error || "Kauf fehlgeschlagen");
-      grant(pid, r.owned || []);
+      grant(pid, r.owned || [], r.txId);
     } finally { buying = false; }
   }
-  function grant(pid, owned){
+  function grant(pid, owned, txId){
     const s = ensure(), P = L().PRODUCTS;
+    s.iapTx = s.iapTx ?? [];
+    if (txId){ if (s.iapTx.includes(txId)) return; s.iapTx.push(txId); if (s.iapTx.length > 200) s.iapTx.splice(0, s.iapTx.length - 200); }
     if (pid === P.pass.id || owned.includes(P.pass.id)){ s.pass.prem = true; }
     if (pid === P.xp2.id) L().addBoost(s, 1440);
     const g = Object.values(P).find(p => p.id === pid && p.gems); if (g) s.gems += g.gems;
-    s.iap = s.iap ?? []; s.iap.push({ pid, at: Date.now() });
+    s.iap = s.iap ?? []; s.iap.push({ pid, at: Date.now(), tx: txId || null });
     UI.persist(); updateGems(); haptic("heavy"); AudioSys.levelUp();
     UI.toast(pid === P.pass.id ? "Season Pass aktiv — Premium-Belohnungen freigeschaltet" : pid === P.xp2.id ? "XP ×2 aktiv für 24 h" : g ? `+${g.gems} Diamanten` : "Gekauft");
     render();
@@ -235,6 +239,12 @@ window.Season = (() => {
   async function syncOwned(){
     if (!native()) return;
     try { const owned = await window.NativeBridge.owned(); const s = ensure(); if (owned.includes(L().PRODUCTS.pass.id) && !s.pass.prem){ s.pass.prem = true; UI.persist(); renderMenu(); } } catch {}
+    // Verbrauchsgüter (XP ×2, Diamanten) der letzten 20 Minuten, die noch nicht gutgeschrieben wurden (App zwischen Kauf und Gutschrift beendet)
+    try {
+      const rec = await (window.NativeBridge.recentTransactions?.(20) ?? []); const s = ensure(), P = L().PRODUCTS, known = new Set(s.iapTx ?? []);
+      rec.filter(t => !known.has(t.id) && [P.xp2.id, P.g100.id, P.g550.id, P.g1200.id].includes(t.product))
+         .forEach(t => grant(t.product, [], t.id));
+    } catch {}
   }
   // Das Menü kann schon stehen, bevor dieses Skript geladen ist (Boot nach await) → nachziehen
   if ($("menu")?.classList.contains("on")) renderMenu(); else updateGems();

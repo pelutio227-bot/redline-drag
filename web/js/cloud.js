@@ -126,17 +126,47 @@ const Cloud = (() => {
     }, 1500);
   }
 
-  async function login(){
+  // ── OAuth (Google / Apple) ────────────────────────────────────────────────
+  // Store-App (Capacitor, Fix 20.11.2026): Google blockt Anmeldungen in eingebetteten WebViews («disallowed_useragent»),
+  // und der Rücksprung ging auf capacitor://localhost — nicht in der Supabase-Allowlist, also landete man auf der
+  // Site-URL (pelutio.com) statt in der App. Darum in der App: System-Browser (SFSafariViewController) + Rücksprung
+  // über das App-Schema redlinetuner://auth (in der Allowlist), Tokens aus dem Fragment → setSession.
+  const nativeApp = () => !!window.NativeBridge?.isNative;
+  const AUTH_RETURN = "redlinetuner://auth";
+  async function oauth(provider){
     if (!sb) return;
-    await sb.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: location.origin + location.pathname },
-    });
+    if (!nativeApp()){
+      await sb.auth.signInWithOAuth({ provider, options: { redirectTo: location.origin + location.pathname } });
+      return;
+    }
+    const { data, error } = await sb.auth.signInWithOAuth({ provider, options: { redirectTo: AUTH_RETURN, skipBrowserRedirect: true } });
+    if (error || !data?.url){ UI.toast("Anmeldung nicht möglich: " + (error?.message || "keine Adresse")); return; }
+    await window.NativeBridge.openUrl(data.url);
   }
-  // SIGN IN WITH APPLE (Claw 30.10.): Web = OAuth über die Services-ID ch.abooz.web (Supabase),
-  // App = natives Plugin (SignInWithApple) + signInWithIdToken — ohne Plugin wird der Knopf in der App nicht gezeigt.
+  async function handleAuthUrl(url){
+    if (!sb || !url) return;
+    try {
+      const u = new URL(url), h = new URLSearchParams(u.hash.replace(/^#/, "")), q = u.searchParams;
+      window.NativeBridge?.closeBrowser?.();
+      const err = h.get("error_description") || q.get("error_description") || h.get("error") || q.get("error");
+      if (err) throw new Error(err);
+      if (h.get("access_token")){
+        const { error } = await sb.auth.setSession({ access_token: h.get("access_token"), refresh_token: h.get("refresh_token") || "" });
+        if (error) throw error;
+      } else if (q.get("code")){
+        const { error } = await sb.auth.exchangeCodeForSession(q.get("code"));
+        if (error) throw error;
+      } else throw new Error("keine Anmeldedaten");
+      hideSheet();
+    } catch(e){ UI.toast("Anmeldung fehlgeschlagen: " + (e?.message || e)); }
+  }
+  window.addEventListener("redline:authurl", e => handleAuthUrl(e.detail));
+  if (window.__authUrl){ const u = window.__authUrl; window.__authUrl = null; setTimeout(() => handleAuthUrl(u), 300); }   // Kaltstart über den Link
+  const login = () => oauth("google");
+  // SIGN IN WITH APPLE (Claw 30.10.): Web = OAuth über die Services-ID ch.abooz.web (Supabase). App = natives Plugin
+  // (SignInWithApple), falls eingebaut, sonst derselbe OAuth-Weg über den System-Browser (seit 20.11. immer verfügbar).
   const appleNative = () => !!(window.Capacitor?.isNativePlatform?.() && window.Capacitor?.Plugins?.SignInWithApple);
-  const appleAvailable = () => !window.Capacitor?.isNativePlatform?.() || appleNative();
+  const appleAvailable = () => true;
   async function loginApple(){
     if (!sb) return;
     if (appleNative()){
@@ -149,7 +179,7 @@ const Cloud = (() => {
       } catch(e){ if (!/cancel|1001/i.test(String(e?.message || e))) UI.toast("Apple-Anmeldung fehlgeschlagen"); }
       return;
     }
-    await sb.auth.signInWithOAuth({ provider: "apple", options: { redirectTo: location.origin + location.pathname } });
+    await oauth("apple");
   }
   // E-Mail-Code-Login — funktioniert ohne Google-Konfiguration
   async function loginMail(){
