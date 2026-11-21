@@ -658,9 +658,9 @@ const Race = (() => {
     let cy = H - Math.min(152, H*0.185);
     // Touch-Control-Kanten (müssen zum CSS passen: #pGas 22vw/max112 links:20,
     // #pShift kompakt 26vw/max96 rechts:16)
-    const [sl0, sr0] = safeLR();                         // CSS: #pGas left safe+20, #pShift right safe+16
-    const pedalRight = sl0 + 20 + Math.min(W*0.22, 112);
-    const shifterLeft = W - sr0 - 16 - Math.min(W*0.26, 96);
+    // Pedal/Schalthebel bleiben am Rand (Claw 21.11.: auf dem iPhone Duo aussen «rechts perfekt») — ohne seitliche Safe-Area
+    const pedalRight = 20 + Math.min(W*0.22, 112);
+    const shifterLeft = W - 16 - Math.min(W*0.26, 96);
     if (W < 900 && H > W){
       // Mobil HOCHFORMAT (9:16): Tacho GROSS unten in der Mitte — zwischen
       // Gaspedal (links) und kompaktem Schalthebel (rechts). Nie übers Auto
