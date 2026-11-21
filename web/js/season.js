@@ -33,6 +33,7 @@ window.Season = (() => {
   // Gegenstand anwenden (sofort gespeichert — eine gekillte App verliert nichts)
   function apply(it){
     const s = ensure();
+    if (it.pre) return;                                   // schon gutgeschrieben (Auto vom Sieg)
     if (it.t === "bolts") s.money += it.n;
     else if (it.t === "gems") s.gems += it.n;
     else if (it.t === "xp2") L().addBoost(s, it.min);
@@ -50,11 +51,12 @@ window.Season = (() => {
     s.gems += drop.gems;
     const ps = drop.pass ? L().addPassPoints(s, drop.pass) : L().passState(s);
     let crateIdx = -1;
-    if (drop.crate){ s.crates.push({ k: drop.crate, lvl: enc.lvl, at: Date.now(), race: true }); crateIdx = s.crates.length - 1; }
+    if (res._car && !drop.crate) drop.crate = L().CRATE_BY_RAR[enc.rar] || "boss";
+    if (drop.crate){ s.crates.push({ k: drop.crate, lvl: enc.lvl, at: Date.now(), race: true, ...(res._car ? { car: res._car } : {}) }); crateIdx = s.crates.length - 1; }
     UI.persist(); updateGems();
     const rows = [];
     if (drop.crate){ const C = L().CRATES[drop.crate];
-      rows.push(`<button class="loot crate r-${C.rar}" data-crate="${crateIdx}" style="animation-delay:.6s"><span class="crbox"><i class="lid"></i></span><div><b>${C.n}</b><small>${res.win ? "Beute vom Sieg" : "Trostpreis"} · Tippen zum Öffnen</small></div><em>ÖFFNEN</em></button>`); }
+      rows.push(`<button class="loot crate r-${C.rar}" data-crate="${crateIdx}" style="animation-delay:.6s"><span class="crbox"><i class="lid"></i></span><div><b>${C.n}</b><small>${res._car ? "✨ Da steckt etwas Grosses drin · Tippen zum Öffnen" : (res.win ? "Beute vom Sieg" : "Trostpreis") + " · Tippen zum Öffnen"}</small></div><em>ÖFFNEN</em></button>`); }
     if (drop.gems) rows.push(`<div class="loot gemc" style="animation-delay:.75s">${GEM}<div>+${drop.gems} Diamanten</div></div>`);
     if (drop.pass){ const up = ps.tier > before;
       rows.push(`<div class="loot pass${up ? " up" : ""}" style="animation-delay:.9s"><i>🏁</i><div>+${drop.pass} Pass-Punkte${up ? ` <small>Stufe ${ps.tier} erreicht — Belohnung abholen</small>` : ` <small>Stufe ${ps.tier + (ps.done ? 0 : 1)} · ${ps.into}/${ps.need || "–"}</small>`}</div></div>`); }
@@ -71,6 +73,7 @@ window.Season = (() => {
   function openCrateUI(idx, srcBtn){
     const s = ensure(), cr = s.crates[idx]; if (!cr) return;
     const items = L().openCrate(cr.k, cr.lvl, Math.random);
+    if (cr.car) items.push({ t: "car", k: cr.car, pre: true });   // gewonnenes Auto als Höhepunkt zuletzt
     s.crates.splice(idx, 1); items.forEach(apply);           // sofort gutgeschrieben
     if (srcBtn){ srcBtn.disabled = true; srcBtn.classList.add("opened"); srcBtn.querySelector("em").textContent = "GEÖFFNET"; }
     const C = L().CRATES[cr.k], ov = $("crate");
@@ -100,10 +103,29 @@ window.Season = (() => {
     if (st.i >= st.items.length){ ov.querySelector(".cr-hint").textContent = ""; ov.querySelector(".cr-ok").style.display = ""; return; }
     const it = st.items[st.i++], box = ov.querySelector(".cr-items");
     const el = document.createElement("div"); el.className = `cr-item ${itemCls(it)}`; el.innerHTML = `${itemIcon(it)}<b>${itemLabel(it)}</b>`;
+    if (it.t === "car"){
+      const rar = window.carRarity?.(it.k) || "epic";
+      el.className = `cr-item carbig r-${rar}`;
+      el.innerHTML = `<span class="rarlbl">NEUES AUTO</span><img alt=""><b>${CAR_DEFS[it.k]?.name ?? it.k}</b><small>Serienzustand · Level 1 · jetzt in deiner Sammlung</small>`;
+      UI.carImage(it.k, S().cars[it.k]?.style).then(im => { const x = el.querySelector("img"); if (x) x.src = im.src; });
+      st.car = it.k;
+    }
     box.appendChild(el); haptic(it.t === "gems" || it.t === "car" ? "heavy" : "light"); AudioSys.reveal(it.t === "car" ? "legend" : it.t === "gems" ? "blue" : "green");
     if (st.i >= st.items.length) setTimeout(() => { ov.querySelector(".cr-hint").textContent = ""; ov.querySelector(".cr-ok").style.display = ""; }, 400);
   }
-  function closeCrate(){ const ov = $("crate"); ov.className = ""; ov.innerHTML = ""; crateState = null; renderMenu(); fire("redline:crate-collected"); }
+  function closeCrate(){ const car = crateState?.car; const ov = $("crate"); ov.className = ""; ov.innerHTML = ""; crateState = null; renderMenu(); fire("redline:crate-collected");
+    if (car) setTimeout(() => newCarNote(car), 350); }
+  // Benachrichtigung: neues Auto → Tippen führt in die Sammlung (Claw 21.11.2026)
+  function newCarNote(k){
+    document.querySelector(".ncar-note")?.remove();
+    const n = document.createElement("button"); n.className = "ncar-note"; n.type = "button";
+    n.innerHTML = `<img alt=""><span><b>🔑 Neues Auto gewonnen</b><small>${CAR_DEFS[k]?.name ?? k} · Tippen für die Sammlung ›</small></span><i aria-label="Schliessen">✕</i>`;
+    UI.carImage(k, S().cars[k]?.style).then(im => { const x = n.querySelector("img"); if (x) x.src = im.src; });
+    const close = () => { n.classList.remove("on"); setTimeout(() => n.remove(), 300); };
+    n.onclick = e => { close(); if (e.target.tagName === "I") return; UI.openCollection(k); };
+    document.body.appendChild(n); haptic("success"); requestAnimationFrame(() => n.classList.add("on"));
+    setTimeout(close, 9000);
+  }
 
   // ── Menü: Pass-Karte + Tageskiste + Boost ──
   function renderMenu(){
@@ -117,11 +139,13 @@ window.Season = (() => {
       <div class="hp-chips">
         <button class="hp-chip${daily ? " ready" : ""}" id="dailyBtn">🎁 ${daily ? "Tageskiste bereit" : `Tageskiste in ${fmtLeft(L().dailyLeftMs(s))}`}</button>
         ${boost ? `<span class="hp-chip boost">⚡ XP ×2 · ${fmtLeft(L().boostLeftMs(s))}</span>` : ""}
+        ${(S().newCars || []).length ? `<button class="hp-chip ready ncar" id="newCarBtn">🔑 Neues Auto · ansehen</button>` : ""}
         ${s.crates.length ? `<button class="hp-chip ready" id="cratesBtn">📦 ${s.crates.length} Kiste${s.crates.length > 1 ? "n" : ""} ungeöffnet</button>` : ""}
       </div>`;
     hp.querySelector(".hp-pass").onclick = () => UI.show("season");
     $("dailyBtn").onclick = claimDaily;
     const cb = $("cratesBtn"); if (cb) cb.onclick = () => openCrateUI(0);
+    const nb = $("newCarBtn"); if (nb) nb.onclick = () => UI.openCollection(S().newCars.slice(-1)[0]);
     updateGems();
   }
   function claimDaily(){

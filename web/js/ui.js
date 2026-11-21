@@ -607,7 +607,8 @@ const UI = (() => {
         if (rw.car){
           // Beute vom NPC = SERIENZUSTAND (Claw 30.10.): Werkslack, keine Teile/Kits/Talente, Setup ab Werk —
           // der Gegner fuhr getunt, du bekommst das nackte Auto und baust es selbst auf.
-          if (!save.cars[rw.car].owned){ save.cars[rw.car] = { ...defaultCarState(rw.car), owned: true, got: Date.now() }; carDrop = rw.car; }
+          if (!save.cars[rw.car].owned){ save.cars[rw.car] = { ...defaultCarState(rw.car), owned: true, got: Date.now() }; carDrop = rw.car;
+            save.newCars = [...new Set([...(save.newCars || []), rw.car])]; }
           else { spare = Math.round(rarCash(enc.lvl) * 2 / 10) * 10; save.money += spare; }
         }
         save.stats.wins++; save.stats.rar[enc.rar] = (save.stats.rar[enc.rar] || 0) + 1;
@@ -650,13 +651,15 @@ const UI = (() => {
       if (rw.cash) L.push(`<div class="loot" style="animation-delay:.15s"><i>🔩</i><div style="color:var(--grn)">+${fmt$(rw.cash)}</div></div>`);
       else L.push(`<div class="loot" style="animation-delay:.15s"><i>·</i><div class="mut">Grau zahlt kein Preisgeld <small>ab Grün gibt's Bolts</small></div></div>`);
       if (spare) L.push(`<div class="loot" style="animation-delay:.3s"><i>🔧</i><div>Ersatzteile: +${fmt$(spare)} <small>${CAR_DEFS[enc.car].name} hast du schon</small></div></div>`);
-      if (carDrop) L.push(`<div class="loot car r-${enc.rar}" style="animation-delay:.5s"><span class="rarlbl">${R.n} · Neues Auto</span><img id="dropImg" alt=""><b style="font-size:17px;font-style:italic">${CAR_DEFS[carDrop].name}</b><small>Serienzustand · Level 1 · ${CLASSES[carClass(carDrop)].name}</small></div>`);
+      if (carDrop && !window.Season?.resultRows) L.push(`<div class="loot car r-${enc.rar}" style="animation-delay:.5s"><span class="rarlbl">${R.n} · Neues Auto</span><img id="dropImg" alt=""><b style="font-size:17px;font-style:italic">${CAR_DEFS[carDrop].name}</b><small>Serienzustand · Level 1 · ${CLASSES[carClass(carDrop)].name}</small></div>`);
     } else if (opp.mode === "enc"){
       const t = nextPart();
       L.push(`<div class="loot"><i>💡</i><div>${driveTip(res)}</div></div>`);
       if (t) L.push(`<div class="loot"><i>🔧</i><div>${t.u.n} Stufe ${t.st} — ${fmt$(t.cost)} <small>bringt ≈ −${Math.max(0.01, t.gain).toFixed(2)}s · in der Garage</small></div></div>`);
       if (save.enc) L.push(`<div class="loot r-${enc.rar}" style="border:1px solid var(--rc)"><i>↺</i><div>Eine Revanche gegen ${esc(d.name)} bleibt dir.</div></div>`);
     }
+    // Gewonnenes Auto liegt in der Beute-Kiste (Claw 21.11.2026: «mehr Überraschung», nicht unten im Ergebnis)
+    if (carDrop) res._car = carDrop;
     if (opp.mode === "enc" && window.Season?.resultRows) L.push(...window.Season.resultRows(enc, res));
     $("resLoot").innerHTML = L.join("");
     $("resTip").style.display = "none";
@@ -664,7 +667,7 @@ const UI = (() => {
     show("results");
     if (res.et === Infinity) $("cEt").textContent = "—";
     else countUp("cEt", res.et, v => v.toFixed(3) + "s", 900);
-    if (res.win && opp.mode === "enc") setTimeout(() => AudioSys.loot(!!carDrop), 500);
+    if (res.win && opp.mode === "enc") setTimeout(() => AudioSys.loot(!!carDrop && !window.Season), 500);
     if (gain.gained.length) setTimeout(() => levelUp(k, gain.gained), carDrop ? 2600 : 1700);
     const menuB = { label: "Menü", go: () => show("menu") };
     const garB  = { label: "Garage", go: () => { gTab = "up"; markTab(); show("garage"); } };
@@ -1115,18 +1118,27 @@ const UI = (() => {
       ks.sort((a, b) => (save.cars[b].owned - save.cars[a].owned) || (save.cars[b].lvl - save.cars[a].lvl));
       ks.forEach(k => {
         const c = save.cars[k], d = CAR_DEFS[k], gp = c.owned ? null : window.Loot?.carGemPrice?.(k);
-        const cc = div(`cc r-${rar}${c.owned ? "" : " no"}${gp ? " buy" : ""}${save.current === k ? " cur" : ""}`,
-          `${c.owned ? lvBadge(c.lvl, rar, true) : ""}<img alt=""><b>${d.name}</b><small>${c.owned ? (save.current === k ? "AKTIV" : CLASSES[carClass(k)].name + " · wählen") : gp ? `${window.Season?.GEM ?? "💎"} ${gp.toLocaleString("de-CH")} · ${CLASSES[carClass(k)].name}` : "Beute · " + CLASSES[carClass(k)].name}</small>`);
+        const isNew = c.owned && (save.newCars || []).includes(k);
+        const cc = div(`cc r-${rar}${c.owned ? "" : " no"}${gp ? " buy" : ""}${save.current === k ? " cur" : ""}${isNew ? " isnew" : ""}`,
+          `${isNew ? `<span class="newpill">NEU</span>` : ""}${c.owned ? lvBadge(c.lvl, rar, true) : ""}<img alt=""><b>${d.name}</b><small>${c.owned ? (save.current === k ? "AKTIV" : CLASSES[carClass(k)].name + " · wählen") : gp ? `${window.Season?.GEM ?? "💎"} ${gp.toLocaleString("de-CH")} · ${CLASSES[carClass(k)].name}` : "Beute · " + CLASSES[carClass(k)].name}</small>`);
         carImage(k, c.owned ? c.style : defaultCarState(k).style).then(im => { const x = cc.querySelector("img"); if (x) x.src = im.src; });
         cc.onclick = () => {
           if (!c.owned) return openCarBuy(k);
           save.current = k; save.enc = null; persist(); renderGarage();
         };
+        cc.dataset.car = k;
         grid.appendChild(cc);
       });
       el.appendChild(grid);
     }
+    if (focusCar){ const fk = focusCar;
+      setTimeout(() => { if (focusCar === fk) focusCar = null; const f = document.querySelector(`#garage .cc[data-car="${fk}"]`);
+        if (f){ f.scrollIntoView({ behavior: "smooth", block: "center" }); f.classList.add("pulse"); } }, 400); }
+    if ((save.newCars || []).length){ const seen = save.newCars; setTimeout(() => { save.newCars = (save.newCars || []).filter(x => !seen.includes(x)); persist(); window.Season?.renderMenu?.(); }, 1500); }
   }
+  // Benachrichtigung «Neues Auto» → direkt in die Sammlung, das Auto wird angezeigt
+  let focusCar = null;
+  function openCollection(k){ focusCar = k || null; gTab = "cars"; show("garage"); }
   // Auto mit Diamanten holen (Claw 20.11.2026): Sammeln ist der lange Weg (Beute), Kaufen der kurze — Preis nach Seltenheit
   // (loot.js carGemPrice). Diamanten kommen aus Kisten/Pass (gratis) oder aus dem Shop (App). Das Auto kommt im Serienzustand
   // auf LV 1, wird aktiv und steht als «geholt» in der Chronik. KURO ØNI (Vault) ist nur über den Season Pass zu haben.
@@ -1363,6 +1375,6 @@ const UI = (() => {
     }, true);
   }
   return { save, EPOCH, show, persist, toast, applyCloud, showDuoResults, applyWager, loseCar, needName, shareVS, unlockVault, raceEvent,
-    carImage: (k, st) => carImage(k, st), hideLevelUp, openRadar, giveXp, updateCash, cur, fmt$,
+    carImage: (k, st) => carImage(k, st), hideLevelUp, openRadar, giveXp, updateCash, cur, fmt$, openCollection,
     currentExhaust: () => save.cars[save.current]?.style.exhaust ?? 0 };
 })();

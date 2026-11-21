@@ -32,6 +32,7 @@ window.I18N_EN = {
   "Street-Kiste": "Street Crate", "Tuner-Kiste": "Tuner Crate", "Boss-Kiste": "Boss Crate", "Elite-Kiste": "Elite Crate", "Legenden-Kiste": "Legend Crate",
   "Beute vom Sieg · Tippen zum Öffnen": "Victory loot · tap to open", "Trostpreis · Tippen zum Öffnen": "Consolation · tap to open", "ÖFFNEN": "OPEN", "GEÖFFNET": "OPENED",
   "+{0} Diamanten": "+{0} diamonds", "+{0} Pass-Punkte": "+{0} pass points", "Stufe {0} erreicht — Belohnung abholen": "Tier {0} reached — claim your reward", "Stufe {0} · {1}/{2}": "Tier {0} · {1}/{2}",
+  "✨ Da steckt etwas Grosses drin · Tippen zum Öffnen": "✨ Something big inside · tap to open", "NEUES AUTO": "NEW CAR", "Serienzustand · Level 1 · jetzt in deiner Sammlung": "Stock condition · level 1 · now in your collection", "🔑 Neues Auto gewonnen": "🔑 New car won", "{0} · Tippen für die Sammlung ›": "{0} · tap for your collection ›", "🔑 Neues Auto · ansehen": "🔑 New car · view", "NEU": "NEW",
   "Tippen zum Öffnen": "Tap to open", "Tippen für den nächsten Gegenstand": "Tap for the next item", "Einsammeln": "Collect",
   "+{0} Bolts": "+{0} Bolts", "XP ×2 · 24 h": "XP ×2 · 24 h", "XP ×2 · {0} h": "XP ×2 · {0} h", "XP ×2 · {0} Min": "XP ×2 · {0} min", "Ausgeruht +{0} %": "Rested +{0} %", "{0} · Auto": "{0} · car",
   "⚡ XP ×2 aktiv": "⚡ XP ×2 active",
