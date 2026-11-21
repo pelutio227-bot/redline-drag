@@ -88,6 +88,11 @@ async function haptic(kind: "light" | "medium" | "heavy" = "light"): Promise<voi
   try { await Haptics.impact({ style }); } catch { /* egal */ }
 }
 
+// Statusleiste (Uhr/Signal) im Rennen aus, sonst an — stört auf kleinen Displays (iPhone Duo aussen)
+async function statusBar(show: boolean): Promise<void> {
+  if (!isNative) return;
+  try { if (show) await StatusBar.show(); else await StatusBar.hide(); } catch { /* egal */ }
+}
 async function closeBrowser(): Promise<void> { if (!isNative) return; try { await Browser.close(); } catch { /* war nicht offen */ } }
 async function openUrl(url: string): Promise<void> {
   if (!isNative) { window.open(url, "_blank"); return; }
@@ -124,7 +129,7 @@ if (isNative && Capacitor.getPlatform() === "ios") {
   });
 }
 
-const bridge = { pushRegister, isNative, iapEnabled: IAP_ENABLED, platform: Capacitor.getPlatform(), products, purchase, restore, owned, recentTransactions, haptic, openUrl, closeBrowser };
+const bridge = { pushRegister, isNative, iapEnabled: IAP_ENABLED, platform: Capacitor.getPlatform(), products, purchase, restore, owned, recentTransactions, haptic, openUrl, closeBrowser, statusBar };
 (window as unknown as { NativeBridge: typeof bridge }).NativeBridge = bridge;
 
 if (isNative && Capacitor.getPlatform() === "ios") {

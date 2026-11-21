@@ -1374,6 +1374,8 @@ const UI = (() => {
       window.NativeBridge.haptic(t.matches(".mbtn.primary, .go") ? "medium" : "light");
     }, true);
   }
+  // Im Rennen Statusleiste (Uhr/Signal) ausblenden — stört auf kleinen Displays (iPhone Duo aussen, Claw 21.11.2026)
+  new MutationObserver(() => window.NativeBridge?.statusBar?.(!$("hud").classList.contains("on"))).observe($("hud"), { attributes: true, attributeFilter: ["class"] });
   return { save, EPOCH, show, persist, toast, applyCloud, showDuoResults, applyWager, loseCar, needName, shareVS, unlockVault, raceEvent,
     carImage: (k, st) => carImage(k, st), hideLevelUp, openRadar, giveXp, updateCash, cur, fmt$, openCollection,
     currentExhaust: () => save.cars[save.current]?.style.exhaust ?? 0 };

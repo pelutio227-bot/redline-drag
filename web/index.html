@@ -136,11 +136,11 @@
   /* HUD */
   #hud{position:fixed;top:0;right:0;bottom:0;left:0;pointer-events:none;display:none}
   #hud.on{display:block}
-  #hudVs{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:64px;right:64px;text-align:center;font-size:13px;font-weight:900;font-style:italic;letter-spacing:.08em;color:var(--mut);line-height:1.25}
+  #hudVs{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:calc(env(safe-area-inset-left,0px) + 64px);right:calc(env(safe-area-inset-right,0px) + 64px);text-align:center;font-size:13px;font-weight:900;font-style:italic;letter-spacing:.08em;color:var(--mut);line-height:1.25}
   #hudVs small{display:block;font-size:11px;font-weight:700;font-style:normal;letter-spacing:.02em;color:#aeb3c2}
   .pedal{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);pointer-events:auto;font-weight:900;letter-spacing:.06em;text-transform:uppercase;display:grid;place-items:center}
   /* GAS — schmales, hohes Pedal wie im Auto: Trittfläche mit Rippen, kippt beim Drücken */
-  #pGas{left:20px;width:22vw;max-width:112px;height:158px;border-radius:14px 14px 26px 26px;overflow:hidden;
+  #pGas{left:calc(env(safe-area-inset-left,0px) + 20px);width:22vw;max-width:112px;height:158px;border-radius:14px 14px 26px 26px;overflow:hidden;
     background:linear-gradient(170deg,#2b303b,#14161c);border:1px solid var(--line);color:#9aa1b2;
     transform:perspective(480px) rotateX(17deg);transform-origin:50% 100%;
     transition:transform .1s ease-out,border-color .15s,box-shadow .15s,color .15s;
@@ -157,7 +157,7 @@
   /* SHIFT — KOMPAKTER JDM-Tuning-Knüppel (Oldschool-Civic-Style, ohne Logo):
      Carbon-Platte mit Chrom-Schrauben, kurze H-Gasse, roter Kugel-Knauf mit
      Chrom-Ring. Schmaler als vorher (max 96px) → Tacho hat unten Mitte Platz. */
-  #pShift{right:16px;width:26vw;max-width:96px;height:132px;border-radius:16px;
+  #pShift{right:calc(env(safe-area-inset-right,0px) + 16px);width:26vw;max-width:96px;height:132px;border-radius:16px;
     color:#c7ccd8;border:1px solid #3a3f4b;
     background:
       radial-gradient(circle 3.5px at 12px 12px,#cfd3da 40%,#5a5f6a 60%,transparent 65%),
@@ -202,7 +202,7 @@
   #pShift b{position:absolute;bottom:8px;left:0;right:0;font-size:11px;letter-spacing:.24em;text-align:center}
   #pShift.flash{border-color:var(--grn);box-shadow:0 0 36px -8px rgba(43,224,94,.6),0 16px 30px -12px rgba(0,0,0,.75)}
   /* NOS — runder roter Druckknopf mit Metallring, wird sichtbar REINGEDRÜCKT */
-  #pNos{right:36px;bottom:calc(env(safe-area-inset-bottom,0px) + 164px);width:84px;height:84px;border-radius:50%;
+  #pNos{right:calc(env(safe-area-inset-right,0px) + 36px);bottom:calc(env(safe-area-inset-bottom,0px) + 164px);width:84px;height:84px;border-radius:50%;
     color:#fff;font-size:15px;letter-spacing:.1em;padding:0;
     background:radial-gradient(circle at 36% 30%,#ff7a63,#E5372B 46%,#8c0f16 88%);
     border:0;transition:transform .07s,box-shadow .07s,background .07s;
@@ -979,11 +979,11 @@
 <script src="js/loot.js?v=3"></script>
 <script src="js/sim.js?v=28"></script>
 <script src="js/perf.js?v=4"></script>
-<script src="js/game.js?v=35"></script>
+<script src="js/game.js?v=36"></script>
 <script src="js/cloud.js?v=27"></script>
 <script src="js/duo.js?v=32"></script>
 <script src="js/rivals.js?v=12"></script>
-<script src="js/ui.js?v=46"></script>
+<script src="js/ui.js?v=47"></script>
 <script src="js/season.js?v=4"></script>
 <script src="js/tutorial.js?v=1"></script>
 <script src="js/input.js?v=2"></script>

@@ -658,8 +658,9 @@ const Race = (() => {
     let cy = H - Math.min(152, H*0.185);
     // Touch-Control-Kanten (müssen zum CSS passen: #pGas 22vw/max112 links:20,
     // #pShift kompakt 26vw/max96 rechts:16)
-    const pedalRight = 20 + Math.min(W*0.22, 112);
-    const shifterLeft = W - 16 - Math.min(W*0.26, 96);
+    const [sl0, sr0] = safeLR();                         // CSS: #pGas left safe+20, #pShift right safe+16
+    const pedalRight = sl0 + 20 + Math.min(W*0.22, 112);
+    const shifterLeft = W - sr0 - 16 - Math.min(W*0.26, 96);
     if (W < 900 && H > W){
       // Mobil HOCHFORMAT (9:16): Tacho GROSS unten in der Mitte — zwischen
       // Gaspedal (links) und kompaktem Schalthebel (rechts). Nie übers Auto
@@ -843,10 +844,22 @@ const Race = (() => {
     }
     return _safeBot;
   }
+  // seitliche Safe-Area (Kamera/Insel im Querformat, iPhone Duo Aussendisplay) — Claw 21.11.2026
+  let _safeLR = null;
+  function safeLR(){
+    if (_safeLR == null){
+      const d = document.createElement("div");
+      d.style.cssText = "position:fixed;top:0;left:0;width:env(safe-area-inset-left,0px);height:env(safe-area-inset-right,0px);visibility:hidden";
+      document.body.appendChild(d); const r = d.getBoundingClientRect(); _safeLR = [r.width || 0, r.height || 0]; d.remove();
+      window.addEventListener("resize", () => { _safeLR = null; }, { once:true });
+    }
+    return _safeLR;
+  }
   function drawTop(){
     const p = st.p, o = st.ai.racer;
-    // unter Statusleiste (Safe-Area) + HUD-Titel (2 Zeilen) — nie darüber
-    const y = safeTop() + 66, x0=W*0.14, x1=W*0.86;
+    // unter Statusleiste (Safe-Area) + HUD-Titel (2 Zeilen) — nie darüber; seitlich weg von Kamera/Insel
+    const [sl, sr] = safeLR(), L = sl + 16, Rr = W - sr - 16;
+    const y = Math.max(safeTop(), H > W ? 28 : 0) + 66, x0 = Math.max(W*0.14, sl + 24), x1 = Math.min(W*0.86, W - sr - 24);
     g.fillStyle = "rgba(255,255,255,.12)"; rr(x0,y,x1-x0,5,3); g.fill();
     const pf = Math.min(1,p.s/raceDist), of = Math.min(1,o.s/raceDist);
     g.fillStyle = "#8E92A3"; g.beginPath(); g.arc(x0+(x1-x0)*of, y+2.5, 5, 0, 7); g.fill();
@@ -856,14 +869,14 @@ const Race = (() => {
     if (st.green != null && p.launched){
       const t = (p.finished ? p.time : st.t) - st.green;
       g.font="800 17px ui-monospace,monospace"; g.fillStyle="#F2F3F7"; g.textAlign="left";
-      g.fillText(t.toFixed(2)+"s", 16, y+30);
-      if (p.rt != null){ g.font="600 11px system-ui"; g.fillStyle="#8E92A3"; g.fillText("RT "+p.rt.toFixed(3), 16, y+46); }
+      g.fillText(t.toFixed(2)+"s", L, y+30);
+      if (p.rt != null){ g.font="600 11px system-ui"; g.fillStyle="#8E92A3"; g.fillText("RT "+p.rt.toFixed(3), L, y+46); }
     }
     // Duo: wer vorne ist — live, in Metern (rechts oben, gegenüber der Zeit)
     if (st.duo && st.rrun && p.launched && !(p.finished && o.finished)){
       const d = p.s - (o.s + (st.oOff||0)), lead = d >= 0;
       g.font="800 15px system-ui"; g.textAlign="right"; g.fillStyle = lead ? "#3BE37F" : "#FF2D40";
-      g.fillText((lead ? "VORNE +" : "HINTEN −") + Math.abs(d).toFixed(1) + " m", W-16, y+30);
+      g.fillText((lead ? "VORNE +" : "HINTEN −") + Math.abs(d).toFixed(1) + " m", Rr, y+30);
     }
   }
 
